@@ -1,0 +1,35 @@
+{
+  "name": "purec-uv",
+  "ignore": [
+    "**/.*",
+    "node_modules",
+    "bower_components",
+    "output"
+  ],
+  "dependencies": {
+    "purescript-prelude": "pure-c/purescript-prelude#master",
+    "purescript-console": "pure-c/purescript-console#master",
+    "purescript-foldable-traversable": "pure-c/purescript-foldable-traversable#master",
+    "purescript-transformers": "^4.1.0",
+    "purescript-control": "pure-c/purescript-control#master",
+    "purescript-partial": "pure-c/purescript-partial#master",
+    "purescript-refs": "pure-c/purescript-refs#master",
+    "purescript-effect": "pure-c/purescript-effect#master",
+    "purescript-lazy": "pure-c/purescript-lazy#master",
+    "purescript-unfoldable": "pure-c/purescript-unfoldable#master"
+  },
+  "devDependencies": {
+    "purescript-psci-support": "^4.0.0"
+  },
+  "resolutions": {
+    "purescript-console": "master",
+    "purescript-partial": "master",
+    "purescript-prelude": "master",
+    "purescript-control": "master",
+    "purescript-refs": "master",
+    "purescript-effect": "master",
+    "purescript-lazy": "master",
+    "purescript-foldable-traversable": "master",
+    "purescript-unfoldable": "master"
+  }
+}
