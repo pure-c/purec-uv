@@ -4,17 +4,25 @@ import Prelude
 
 import Control.Monad.Except (runExceptT)
 import Control.Monad.Trans.Class (lift)
+import Data.Either (Either(..))
 import Effect (Effect)
+import Effect.Console as Console
 import UV as UV
 
 main :: Effect Unit
-main = void $ runExceptT do
-  loop   <- lift UV.defaultLoop
-  server <- UV.udpInit loop
-  UV.udpBind server $ UV.ip4Addr "0.0.0.0" 1234
-  -- int r = uv_listen((uv_stream_t*) &server, DEFAULT_BACKLOG, on_new_connection);
-  -- if (r) {
-  --     fprintf(stderr, "Listen error %s\n", uv_strerror(r));
-  --     return 1;
-  -- }
+main = logResult =<< runExceptT do
+  let
+    a =
+      "stall"
+  loop <- lift UV.defaultLoop
+  h    <- UV.udpNew loop
+  UV.udpBind (UV.ip4Addr "0.0.0.0" 1234) [ UV._UdpReuseAddr ] h
+  UV.udpRecvStart <@> h $ \_ ->
+    Console.log $ "received: affen" <> a
   UV.run loop UV._RunDefault
+
+  where
+  logResult (Left n) =
+    Console.log $ "Failure(" <> show n <> "): " <> UV.strerror n
+  logResult (Right _) =
+    Console.log "Done!"
