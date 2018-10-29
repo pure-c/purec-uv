@@ -32,13 +32,10 @@ errCode
       , udpSetBroadcast :: Error
       )
   -> Error
-errCode =
-  V.case_
-    # V.on _run identity
-    # V.on _udpNew identity
-    # V.on _udpBind identity
-    # V.on _udpRecvStart identity
-    # V.on _udpSetBroadcast identity
+errCode e =
+  V.unvariant e # \(V.Unvariant k) ->
+    k \_ v ->
+      unsafeCoerce v
 
 foreign import strerror :: Error -> String
 
