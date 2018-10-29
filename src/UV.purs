@@ -17,7 +17,7 @@ import Unsafe.Coerce (unsafeCoerce)
 
 type Error = Int
 
-foreign import strerror :: Int -> String
+foreign import strerror :: Error -> String
 
 foreign import data RunMode :: Type
 foreign import _RunDefault :: RunMode
@@ -39,12 +39,9 @@ foreign import runImpl
 run :: Loop -> RunMode -> ExceptT Error Effect Unit
 run loop mode = ExceptT $ runImpl Left Right loop mode
 
-foreign import data SockAddrIn :: Type
-
-type Ip = String
-type Port = Int
-
-foreign import ip4Addr :: Ip -> Port -> SockAddrIn
+--------------------------------------------------------------------------------
+-- Streams
+--------------------------------------------------------------------------------
 
 foreign import data Stream :: Type
 
@@ -80,7 +77,18 @@ listen h backlog cb =
   ExceptT $ listenImpl Left Right (toStream h) backlog cb
 
 --------------------------------------------------------------------------------
--- UDP
+-- Networking
+--------------------------------------------------------------------------------
+
+foreign import data SockAddrIn :: Type
+
+type Ip = String
+type Port = Int
+
+foreign import ip4Addr :: Ip -> Port -> SockAddrIn
+
+--------------------------------------------------------------------------------
+-- Networking: UDP
 --------------------------------------------------------------------------------
 
 foreign import data UdpHandle :: Type
