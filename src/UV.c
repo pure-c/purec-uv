@@ -132,3 +132,9 @@ PURS_FFI_FUNC_5(UV_udpRecvStartImpl, Left, Right, _recvCont, _handle, _, {
 	ctx->recv_cont = _recvCont;
 	RETURN_EITHER(uv_udp_recv_start(handle, alloc_cb, udp_recv_cb), NULL);
 });
+
+PURS_FFI_FUNC_5(UV_udpSetBroadcastImpl, Left, Right, _on, _handle, _, {
+	purs_any_int_t on = purs_any_get_int(_on);
+	uv_udp_t * handle = purs_any_get_foreign(_handle)->data;
+	RETURN_EITHER(uv_udp_set_broadcast(handle, on), NULL);
+});

@@ -20,7 +20,8 @@
     "purescript-unsafe-coerce": "pure-c/purescript-unsafe-coerce#master",
     "purescript-ordered-collections": "^1.4.0",
     "purescript-st": "pure-c/purescript-st#master",
-    "purescript-arrays": "Lupino/purescript-arrays#5eabed2fd0c7105d78d47051ea9b110c8024ccca"
+    "purescript-arrays": "Lupino/purescript-arrays#5eabed2fd0c7105d78d47051ea9b110c8024ccca",
+    "purescript-functions": "pure-c/purescript-functions#master"
   },
   "devDependencies": {
     "purescript-psci-support": "^4.0.0"
@@ -37,6 +38,7 @@
     "purescript-unfoldable": "master",
     "purescript-unsafe-coerce": "master",
     "purescript-st": "master",
-    "purescript-arrays": "5eabed2fd0c7105d78d47051ea9b110c8024ccca"
+    "purescript-arrays": "5eabed2fd0c7105d78d47051ea9b110c8024ccca",
+    "purescript-functions": "master"
   }
 }

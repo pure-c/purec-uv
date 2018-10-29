@@ -11,11 +11,34 @@ import Data.Either (Either(..))
 import Data.Map (Map)
 import Data.Map as Map
 import Data.Maybe (Maybe(..), fromJust)
+import Data.Symbol (SProxy(..))
+import Data.Variant (Variant)
+import Data.Variant as V
 import Effect (Effect)
 import Partial.Unsafe (unsafePartial)
 import Unsafe.Coerce (unsafeCoerce)
 
 type Error = Int
+
+type Handler es a =
+  ExceptT (Variant es) Effect a
+
+errCode
+  :: Variant
+      ( run :: Error
+      , udpNew :: Error
+      , udpBind :: Error
+      , udpRecvStart :: Error
+      , udpSetBroadcast :: Error
+      )
+  -> Error
+errCode =
+  V.case_
+    # V.on _run identity
+    # V.on _udpNew identity
+    # V.on _udpBind identity
+    # V.on _udpRecvStart identity
+    # V.on _udpSetBroadcast identity
 
 foreign import strerror :: Error -> String
 
@@ -29,6 +52,19 @@ foreign import defaultLoop :: Effect Loop
 foreign import newLoop :: Effect Loop
 foreign import data LoopOption :: Type
 
+_run :: SProxy "run"
+_run = SProxy
+
+run
+  :: ∀ es
+   . Loop
+  -> RunMode
+  -> Handler (run :: Error | es) Unit
+run loop mode =
+  withExceptT (V.inj _run) $
+    ExceptT $
+      runImpl Left Right loop mode
+
 foreign import runImpl
   :: (∀ a b. a -> Either a b)
   -> (∀ a b. b -> Either a b)
@@ -36,11 +72,8 @@ foreign import runImpl
   -> RunMode
   -> Effect (Either Error Unit)
 
-run :: Loop -> RunMode -> ExceptT Error Effect Unit
-run loop mode = ExceptT $ runImpl Left Right loop mode
-
 --------------------------------------------------------------------------------
--- Streams
+-- Streams (TODO)
 --------------------------------------------------------------------------------
 
 foreign import data Stream :: Type
@@ -57,14 +90,6 @@ newtype Backlog =
   Backlog
     Int
 
-foreign import listenImpl
-  :: (∀ a b. a -> Either a b)
-  -> (∀ a b. b -> Either a b)
-  -> Stream
-  -> Backlog
-  -> (Unit -> Effect Unit)
-  -> Effect (Either Error Unit)
-
 listen
   :: ∀ h
    . IsStream h
@@ -75,6 +100,14 @@ listen
   -> ExceptT Error Effect Unit
 listen h backlog cb =
   ExceptT $ listenImpl Left Right (toStream h) backlog cb
+
+foreign import listenImpl
+  :: (∀ a b. a -> Either a b)
+  -> (∀ a b. b -> Either a b)
+  -> Stream
+  -> Backlog
+  -> (Unit -> Effect Unit)
+  -> Effect (Either Error Unit)
 
 --------------------------------------------------------------------------------
 -- Networking
@@ -98,14 +131,37 @@ foreign import _UdpIpv6only :: UdpFlag
 foreign import _UdpPartial :: UdpFlag
 foreign import _UdpReuseAddr :: UdpFlag
 
+_udpNew :: SProxy "udpNew"
+_udpNew = SProxy
+
+udpNew
+  :: ∀ es
+   . Loop
+  -> Handler (udpNew :: Error | es) UdpHandle
+udpNew loop =
+  withExceptT (V.inj _udpNew) $
+    ExceptT $
+      udpNewImpl Left Right loop
+
 foreign import udpNewImpl
   :: (∀ a b. a -> Either a b)
   -> (∀ a b. b -> Either a b)
   -> Loop
   -> Effect (Either Error UdpHandle)
 
-udpNew :: Loop -> ExceptT Error Effect UdpHandle
-udpNew loop = ExceptT $ udpNewImpl Left Right loop
+_udpBind :: SProxy "udpBind"
+_udpBind = SProxy
+
+udpBind
+  :: ∀ es
+   . SockAddrIn
+  -> Array UdpFlag
+  -> UdpHandle
+  -> Handler (udpBind :: Error | es) Unit
+udpBind addr flags handle =
+  withExceptT (V.inj _udpBind) $
+    ExceptT $
+      udpBindImpl Left Right addr flags handle
 
 foreign import udpBindImpl
   :: (∀ a b. a -> Either a b)
@@ -115,8 +171,18 @@ foreign import udpBindImpl
   -> UdpHandle
   -> Effect (Either Error Unit)
 
-udpBind :: SockAddrIn -> Array UdpFlag -> UdpHandle -> ExceptT Error Effect Unit
-udpBind addr flags handle = ExceptT $ udpBindImpl Left Right addr flags handle
+_udpRecvStart :: SProxy "udpRecvStart"
+_udpRecvStart = SProxy
+
+udpRecvStart
+  :: ∀ es
+   . (Unit -> Effect Unit)
+  -> UdpHandle
+  -> Handler (udpRecvStart :: Error | es) Unit
+udpRecvStart recvCb handle =
+  withExceptT (V.inj _udpRecvStart) $
+    ExceptT $
+      udpRecvStartImpl Left Right recvCb handle
 
 foreign import udpRecvStartImpl
   :: (∀ a b. a -> Either a b)
@@ -125,9 +191,22 @@ foreign import udpRecvStartImpl
   -> UdpHandle
   -> Effect (Either Error Unit)
 
-udpRecvStart
-  :: (Unit -> Effect Unit)
+_udpSetBroadcast :: SProxy "udpSetBroadcast"
+_udpSetBroadcast = SProxy
+
+udpSetBroadcast
+  :: ∀ es
+   . Boolean
   -> UdpHandle
-  -> ExceptT Error Effect Unit
-udpRecvStart recvCb handle =
-  ExceptT $ udpRecvStartImpl Left Right recvCb handle
+  -> Handler (udpSetBroadcast :: Error | es) Unit
+udpSetBroadcast x handle =
+  withExceptT (V.inj _udpSetBroadcast) $
+    ExceptT $
+      udpSetBroadcastImpl Left Right x handle
+
+foreign import udpSetBroadcastImpl
+  :: (∀ a b. a -> Either a b)
+  -> (∀ a b. b -> Either a b)
+  -> Boolean
+  -> UdpHandle
+  -> Effect (Either Error Unit)
