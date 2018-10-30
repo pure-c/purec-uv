@@ -18,7 +18,10 @@ import Effect (Effect)
 import Partial.Unsafe (unsafePartial)
 import Unsafe.Coerce (unsafeCoerce)
 
-type Error = Int
+foreign import data Buffer :: Type
+
+type Error =
+  Int
 
 type Handler es a =
   ExceptT (Variant es) Effect a
@@ -30,6 +33,7 @@ errCode
       , udpBind :: Error
       , udpRecvStart :: Error
       , udpSetBroadcast :: Error
+      , udpSend :: Error
       )
   -> Error
 errCode e =
@@ -107,10 +111,23 @@ foreign import listenImpl
   -> Effect (Either Error Unit)
 
 --------------------------------------------------------------------------------
+-- Buffers
+--------------------------------------------------------------------------------
+
+foreign import bufferFromString :: String -> Effect Buffer
+
+--------------------------------------------------------------------------------
 -- Networking
 --------------------------------------------------------------------------------
 
 foreign import data SockAddrIn :: Type
+foreign import data SockAddr :: Type
+
+class IsSockAddr a where
+  toSockAddr :: a -> SockAddr
+
+instance isSockAddrSockAddrIn :: IsSockAddr SockAddrIn where
+  toSockAddr = unsafeCoerce
 
 type Ip = String
 type Port = Int
@@ -205,5 +222,30 @@ foreign import udpSetBroadcastImpl
   :: (∀ a b. a -> Either a b)
   -> (∀ a b. b -> Either a b)
   -> Boolean
+  -> UdpHandle
+  -> Effect (Either Error Unit)
+
+_udpSend :: SProxy "udpSend"
+_udpSend = SProxy
+
+udpSend
+  :: ∀ es sockAddr
+   . IsSockAddr sockAddr
+  => Array Buffer
+  -> sockAddr
+  -> (Either Error Unit -> Effect Unit)
+  -> UdpHandle
+  -> Handler (udpSend :: Error | es) Unit
+udpSend bufs addr cb handle =
+  withExceptT (V.inj _udpSend) $
+    ExceptT $
+      udpSendImpl Left Right bufs (toSockAddr addr) cb handle
+
+foreign import udpSendImpl
+  :: (∀ a b. a -> Either a b)
+  -> (∀ a b. b -> Either a b)
+  -> Array Buffer
+  -> SockAddr
+  -> (Either Error Unit -> Effect Unit)
   -> UdpHandle
   -> Effect (Either Error Unit)
