@@ -90,6 +90,14 @@ PURS_FFI_FUNC_2(UV_bufferFromString, _str, _, {
 	return purs_any_foreign_new(NULL, buf);
 });
 
+PURS_FFI_FUNC_2(UV_bufferToString, _buf, _, {
+	const uv_buf_t *buf = purs_any_get_foreign(_buf)->data;
+	char *dat = purs_malloc(buf->len + 1);
+	memcpy(dat, buf->base, buf->len);
+	dat[buf->len] = '\0';
+	return purs_any_string_new_mv(dat);
+});
+
 /*******************************************************************************
  * Networking
  ******************************************************************************/
@@ -115,12 +123,25 @@ struct purec_udp_ctx_s {
 	const purs_any_t * on_recv_cont;
 	const purs_any_t * Left;
 	const purs_any_t * Right;
+	const purs_any_t * Nothing;
+	const purs_any_t * Just;
 };
 
-PURS_FFI_FUNC_4(UV_udpNewImpl, Left, Right, _loop, _, {
+#define UNPACK_UDP_CTX(HANDLE)\
+	const purs_any_t * Left = ((purec_udp_ctx_t*) HANDLE->data)->Left;\
+	const purs_any_t * Right = ((purec_udp_ctx_t*) HANDLE->data)->Right;\
+	const purs_any_t * Nothing = ((purec_udp_ctx_t*) HANDLE->data)->Nothing;\
+	const purs_any_t * Just = ((purec_udp_ctx_t*) HANDLE->data)->Just;
+
+PURS_FFI_FUNC_6(UV_udpNewImpl, Left, Right, Nothing, Just, _loop, _, {
 	uv_loop_t *loop = purs_any_get_foreign(_loop)->data;
 	uv_udp_t  *handle = purs_new(uv_udp_t);
-	handle->data = purs_new(purec_udp_ctx_t);
+	purec_udp_ctx_t * hctx = purs_new(purec_udp_ctx_t);
+	hctx->Left = Left;
+	hctx->Right = Right;
+	hctx->Nothing = Nothing;
+	hctx->Just = Just;
+	handle->data = hctx;
 	return TO_EITHER(
 		uv_udp_init(loop, handle),
 		purs_any_foreign_new(NULL, handle));
@@ -133,42 +154,59 @@ PURS_FFI_FUNC_6(UV_udpBindImpl, Left, Right, _addr, _flags, _handle, _, {
 	return TO_EITHER(uv_udp_bind(handle, addr, flags), NULL);
 });
 
-
 static void udp_recv_cb(uv_udp_t* handle,
 			ssize_t nread,
 			const uv_buf_t* buf,
 			const struct sockaddr* addr,
 			unsigned flags) {
+
 	const purec_udp_ctx_t * ctx = handle->data;
+	UNPACK_UDP_CTX(handle);
+
 	assert(ctx->on_recv_cont != NULL);
 
 	/* TODO: check 'flags' for 'UV_UDP_PARTIAL' */
 
 	const purs_any_t * result;
-
 	if (nread < 0) {
 		/* transmission error */
-		arg = purs_any_app(ctx->Left, nread);
-	} else if (nread == 0) {
-		if (addr == NULL) {
-			/* nothing to read */
-		} else {
-			/* empty datagram */
-		}
+		result = purs_any_app(Left, purs_any_int_new(nread));
 	} else {
-		/* ordinary datagram */
+		if (nread == 0 && addr == NULL) {
+			if (addr == NULL) {
+				/* nothing to read */
+				result = Nothing;
+			} else {
+				uv_buf_t *buf_out = purs_new(uv_buf_t);
+				buf_out->len = 0;
+				buf_out->base = NULL;
+
+				/* empty datagram */
+				result = purs_any_app(
+					Just,
+					purs_any_foreign_new(NULL, buf_out));
+			}
+		} else {
+			/* ordinary datagram */
+			uv_buf_t *buf_out = purs_new(uv_buf_t);
+			purs_realloc(buf->base, nread);
+			buf_out->len = nread;
+			buf_out->base = buf->base;
+			result = purs_any_app(
+				Just,
+				purs_any_foreign_new(NULL, buf_out));
+		}
 	}
 
 	purs_any_app(purs_any_app(ctx->on_recv_cont, result), NULL);
 }
 
-PURS_FFI_FUNC_5(UV_udpRecvStartImpl, Left, Right, _recvCont, _handle, _, {
+PURS_FFI_FUNC_3(UV_udpRecvStartImpl, _recvCont, _handle, _, {
 	uv_udp_t * handle = purs_any_get_foreign(_handle)->data;
 	purec_udp_ctx_t * ctx = handle->data;
+	UNPACK_UDP_CTX(handle)
 	assert(ctx->on_recv_cont == NULL);
 	ctx->on_recv_cont = _recvCont;
-	ctx->Left = Left;
-	ctx->Right = Right;
 	return TO_EITHER(uv_udp_recv_start(handle, alloc_cb, udp_recv_cb), NULL);
 });
 
@@ -180,29 +218,31 @@ PURS_FFI_FUNC_5(UV_udpSetBroadcastImpl, Left, Right, _on, _handle, _, {
 
 typedef struct purec_udp_send_ctx_s purec_udp_send_ctx_t;
 struct purec_udp_send_ctx_s {
-	const purs_any_t * Left;
-	const purs_any_t * Right;
 	const purs_any_t * on_send_cont;
 };
 
 void purec_udp_send_cb (uv_udp_send_t* req, int status) {
 	const purec_udp_send_ctx_t * ctx = req->data;
-	const purs_any_t * Left = ctx->Left;
-	const purs_any_t * Right = ctx->Right;
+
+	UNPACK_UDP_CTX(req->handle)
+
 	purs_any_app(purs_any_app(ctx->on_send_cont,
 				  TO_EITHER(status, NULL)), NULL);
 }
 
-PURS_FFI_FUNC_7(UV_udpSendImpl, Left, Right, _bufs, _addr, _cb, _handle, _, {
+PURS_FFI_FUNC_5(UV_udpSendImpl, _bufs, _addr, _cb, _handle, _, {
 	const purs_vec_t * bufs_vec = purs_any_get_array(_bufs);
 	const struct sockaddr * addr = purs_any_get_foreign(_addr)->data;
 	uv_udp_t * handle = purs_any_get_foreign(_handle)->data;
+
+	UNPACK_UDP_CTX(handle)
+
 	purec_udp_send_ctx_t * ctx = purs_new(purec_udp_send_ctx_t);
-	ctx->Left = Left;
-	ctx->Right = Right;
 	ctx->on_send_cont = _cb;
+
 	uv_udp_send_t *req = purs_new(uv_udp_send_t);
 	req->data = ctx;
+
 	uv_buf_t* bufs = purs_malloc(bufs_vec->length * sizeof(uv_buf_t));
 	{
 		int i;

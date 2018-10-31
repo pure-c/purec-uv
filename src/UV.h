@@ -16,6 +16,7 @@ PURS_FFI_EXPORT(UV_listenImpl);
 PURS_FFI_EXPORT(UV_ip4Addr);
 
 PURS_FFI_EXPORT(UV_bufferFromString);
+PURS_FFI_EXPORT(UV_bufferToString);
 
 PURS_FFI_EXPORT(UV_udpRecvStartImpl);
 PURS_FFI_EXPORT(UV__UdpIpv6Only);

@@ -5,7 +5,9 @@ import Prelude
 import Control.Monad.Except (runExceptT)
 import Control.Monad.Trans.Class (lift)
 import Data.Either (Either(..))
+import Data.Maybe (Maybe)
 import Data.Symbol (reflectSymbol)
+import Data.Traversable (traverse)
 import Data.Variant as V
 import Effect (Effect)
 import Effect.Console as Console
@@ -17,8 +19,9 @@ main = logResult =<< runExceptT do
 
   recvH <- UV.udpNew loop
   UV.udpBind (UV.ip4Addr "0.0.0.0" 1234) [ UV._UdpReuseAddr ] recvH
-  UV.udpRecvStart <@> recvH $ \_ ->
-    Console.log "RECEIVED"
+  UV.udpRecvStart <@> recvH $ \(mBuf :: Maybe UV.Buffer) -> do
+    mS <- traverse UV.bufferToString mBuf
+    Console.log $ "Received: " <> show mS
 
   sendH <- UV.udpNew loop
   UV.udpBind (UV.ip4Addr "0.0.0.0" 1235) [ UV._UdpReuseAddr ] sendH
@@ -28,7 +31,7 @@ main = logResult =<< runExceptT do
   UV.udpSend [ buf ] (UV.ip4Addr "0.0.0.0" 1234)
     (case _ of
       Right _ ->
-        pure unit
+        Console.log "sent"
       Left errCode ->
         Console.log $ renderErrCode errCode
     ) sendH

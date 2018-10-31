@@ -115,6 +115,7 @@ foreign import listenImpl
 --------------------------------------------------------------------------------
 
 foreign import bufferFromString :: String -> Effect Buffer
+foreign import bufferToString :: Buffer -> Effect String
 
 --------------------------------------------------------------------------------
 -- Networking
@@ -155,11 +156,13 @@ udpNew
 udpNew loop =
   withExceptT (V.inj _udpNew) $
     ExceptT $
-      udpNewImpl Left Right loop
+      udpNewImpl Left Right Nothing Just loop
 
 foreign import udpNewImpl
   :: (∀ a b. a -> Either a b)
   -> (∀ a b. b -> Either a b)
+  -> (∀ a. Maybe a)
+  -> (∀ a. a -> Maybe a)
   -> Loop
   -> Effect (Either Error UdpHandle)
 
@@ -190,18 +193,16 @@ _udpRecvStart = SProxy
 
 udpRecvStart
   :: ∀ es
-   . (Unit -> Effect Unit)
+   . (Maybe Buffer -> Effect Unit)
   -> UdpHandle
   -> Handler (udpRecvStart :: Error | es) Unit
 udpRecvStart recvCb handle =
   withExceptT (V.inj _udpRecvStart) $
     ExceptT $
-      udpRecvStartImpl Left Right recvCb handle
+      udpRecvStartImpl recvCb handle
 
 foreign import udpRecvStartImpl
-  :: (∀ a b. a -> Either a b)
-  -> (∀ a b. b -> Either a b)
-  -> (Unit -> Effect Unit)
+  :: (Maybe Buffer -> Effect Unit)
   -> UdpHandle
   -> Effect (Either Error Unit)
 
@@ -239,12 +240,10 @@ udpSend
 udpSend bufs addr cb handle =
   withExceptT (V.inj _udpSend) $
     ExceptT $
-      udpSendImpl Left Right bufs (toSockAddr addr) cb handle
+      udpSendImpl bufs (toSockAddr addr) cb handle
 
 foreign import udpSendImpl
-  :: (∀ a b. a -> Either a b)
-  -> (∀ a b. b -> Either a b)
-  -> Array Buffer
+  :: Array Buffer
   -> SockAddr
   -> (Either Error Unit -> Effect Unit)
   -> UdpHandle
