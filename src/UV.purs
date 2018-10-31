@@ -29,11 +29,15 @@ type Handler es a =
 errCode
   :: Variant
       ( run :: Error
+      , tcpNew :: Error
+      , tcpBind :: Error
       , udpNew :: Error
       , udpBind :: Error
       , udpRecvStart :: Error
       , udpSetBroadcast :: Error
       , udpSend :: Error
+      , listen :: Error
+      , readStart :: Error
       )
   -> Error
 errCode e =
@@ -77,37 +81,56 @@ foreign import runImpl
 -- Streams (TODO)
 --------------------------------------------------------------------------------
 
-foreign import data Stream :: Type
+foreign import data StreamHandle :: Type
 
-class CanListen h
+class IsStreamHandle h where
+  toStreamHandle :: h -> StreamHandle
 
-class IsStream h where
-  toStream :: h -> Stream
-
-instance udpIsStream :: IsStream UdpHandle where
-  toStream = unsafeCoerce
+instance isStreamHandleTcpHandle :: IsStreamHandle TcpHandle where
+  toStreamHandle = unsafeCoerce
 
 newtype Backlog =
   Backlog
     Int
 
+_listen :: SProxy "listen"
+_listen = SProxy
+
 listen
-  :: ∀ h
-   . IsStream h
-  => CanListen h
-  => h
-  -> Backlog
-  -> (Unit -> Effect Unit)
-  -> ExceptT Error Effect Unit
-listen h backlog cb =
-  ExceptT $ listenImpl Left Right (toStream h) backlog cb
+  :: ∀ h es
+   . IsStreamHandle h
+  => Backlog
+  -> (Either Error h -> Effect Unit)
+  -> h
+  -> Handler (listen :: Error | es) Unit
+listen backlog cb h =
+  withExceptT (V.inj _listen) $
+    ExceptT $ listenImpl backlog cb $ toStreamHandle h
 
 foreign import listenImpl
-  :: (∀ a b. a -> Either a b)
-  -> (∀ a b. b -> Either a b)
-  -> Stream
-  -> Backlog
-  -> (Unit -> Effect Unit)
+  :: ∀ h
+   . Backlog
+  -> (Either Error h -> Effect Unit)
+  -> StreamHandle
+  -> Effect (Either Error Unit)
+
+_readStart :: SProxy "readStart"
+_readStart = SProxy
+
+readStart
+  :: ∀ h es
+   . IsStreamHandle h
+  => (Unit -> Effect Unit)
+  -> h
+  -> Handler (readStart :: Error | es) Unit
+readStart cb h =
+  withExceptT (V.inj _readStart) $
+    ExceptT $ readStartImpl cb $ toStreamHandle h
+
+foreign import readStartImpl
+  :: ∀ es
+   . (Unit -> Effect Unit)
+  -> StreamHandle
   -> Effect (Either Error Unit)
 
 --------------------------------------------------------------------------------
@@ -134,6 +157,55 @@ type Ip = String
 type Port = Int
 
 foreign import ip4Addr :: Ip -> Port -> SockAddrIn
+
+--------------------------------------------------------------------------------
+-- Networking: TCP
+--------------------------------------------------------------------------------
+
+foreign import data TcpHandle :: Type
+foreign import data TcpFlag :: Type
+
+foreign import _TcpIpv6only :: TcpFlag
+
+_tcpNew :: SProxy "tcpNew"
+_tcpNew = SProxy
+
+tcpNew
+  :: ∀ es
+   . Loop
+  -> Handler (tcpNew :: Error | es) TcpHandle
+tcpNew loop =
+  withExceptT (V.inj _tcpNew) $
+    ExceptT $
+      tcpNewImpl Left Right Nothing Just loop
+
+foreign import tcpNewImpl
+  :: (∀ a b. a -> Either a b)
+  -> (∀ a b. b -> Either a b)
+  -> (∀ a. Maybe a)
+  -> (∀ a. a -> Maybe a)
+  -> Loop
+  -> Effect (Either Error TcpHandle)
+
+_tcpBind :: SProxy "tcpBind"
+_tcpBind = SProxy
+
+tcpBind
+  :: ∀ es
+   . SockAddrIn
+  -> Array TcpFlag
+  -> TcpHandle
+  -> Handler (tcpBind :: Error | es) Unit
+tcpBind addr flags handle =
+  withExceptT (V.inj _tcpBind) $
+    ExceptT $
+      tcpBindImpl addr flags handle
+
+foreign import tcpBindImpl
+  :: SockAddrIn
+  -> Array TcpFlag
+  -> TcpHandle
+  -> Effect (Either Error Unit)
 
 --------------------------------------------------------------------------------
 -- Networking: UDP
@@ -178,12 +250,10 @@ udpBind
 udpBind addr flags handle =
   withExceptT (V.inj _udpBind) $
     ExceptT $
-      udpBindImpl Left Right addr flags handle
+      udpBindImpl addr flags handle
 
 foreign import udpBindImpl
-  :: (∀ a b. a -> Either a b)
-  -> (∀ a b. b -> Either a b)
-  -> SockAddrIn
+  :: SockAddrIn
   -> Array UdpFlag
   -> UdpHandle
   -> Effect (Either Error Unit)

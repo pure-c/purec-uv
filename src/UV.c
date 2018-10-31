@@ -39,9 +39,9 @@ PURS_FFI_FUNC_5(UV_runImpl, Left, Right, _loop, _mode, _, {
  * Common
  ******************************************************************************/
 
-static void alloc_cb(uv_handle_t* handle,
-		     size_t suggested_size,
-		     uv_buf_t* buf) {
+static void purec__alloc_buf_cb(uv_handle_t* handle,
+				size_t suggested_size,
+				uv_buf_t* buf) {
 	buf->base = purs_malloc(suggested_size);
 	buf->len = suggested_size;
 }
@@ -65,14 +65,55 @@ int build_flags (const purs_any_t * flags) {
  * Streams
  ******************************************************************************/
 
-void on_connection_cb (uv_stream_t* server, int status) {
-    // TODO
+#define STREAM_HANDLE_FIELDS\
+	const purs_any_t * Left;\
+	const purs_any_t * Right;\
+	const purs_any_t * Nothing;\
+	const purs_any_t * Just;\
+	const purs_any_t * on_connection_cont;\
+
+typedef struct purec_stream_ctx_s purec_stream_ctx_t;
+struct purec_stream_ctx_s {
+	STREAM_HANDLE_FIELDS
+};
+
+#define UNPACK_STREAM_CTX(DATA)\
+	const purs_any_t * Left = ((purec_stream_ctx_t*) (DATA))->Left;\
+	const purs_any_t * Right = ((purec_stream_ctx_t*) (DATA))->Right;\
+	const purs_any_t * Nothing = ((purec_stream_ctx_t*) (DATA))->Nothing;\
+	const purs_any_t * Just = ((purec_stream_ctx_t*) (DATA))->Just;
+
+static void purec__on_read_cb (uv_stream_t* stream,
+			       ssize_t nread,
+			       const uv_buf_t* buf) {
 }
 
-PURS_FFI_FUNC_6(UV_listenImpl, Left, Right, _stream, _backlog, _cb, _, {
-	uv_stream_t * stream = purs_any_get_foreign(_stream)->data;
+static void purec__on_connection_cb (uv_stream_t *server_handle, int status) {
+	purec_stream_ctx_t *ctx = server_handle->data;
+	UNPACK_STREAM_CTX(server_handle->data);
+
+	assert(ctx->on_connection_cont != NULL);
+
+	uv_tcp_t  *client_handle = purs_new(uv_tcp_t);
+	uv_tcp_init(server_handle->loop, client_handle);
+
+	purs_any_app(
+		purs_any_app(
+			ctx->on_connection_cont,
+			TO_EITHER(
+				uv_accept(server_handle, (uv_stream_t*) client_handle),
+				purs_any_foreign_new(NULL, client_handle))),
+		NULL);
+}
+
+PURS_FFI_FUNC_4(UV_listenImpl, _backlog, _cb, _handle, _, {
+	uv_stream_t  *handle = purs_any_get_foreign(_handle)->data;
 	int backlog = purs_any_get_int(_backlog);
-	return TO_EITHER(uv_listen(stream, backlog, on_connection_cb), NULL);
+	UNPACK_STREAM_CTX(handle->data);
+	purec_stream_ctx_t *ctx = handle->data;
+	assert(ctx->on_connection_cont == NULL);
+	ctx->on_connection_cont = _cb;
+	return TO_EITHER(uv_listen(handle, backlog, purec__on_connection_cb), NULL);
 });
 
 /*******************************************************************************
@@ -108,6 +149,42 @@ PURS_FFI_FUNC_2(UV_ip4Addr, _ip, _port, {
 	struct sockaddr_in *addr = purs_new(struct sockaddr_in);
 	uv_ip4_addr((const char*) ip, port, addr);
 	return purs_any_foreign_new(NULL, addr);
+});
+
+/*******************************************************************************
+ * Networking: TCP
+ ******************************************************************************/
+
+PURS_FFI_VALUE(UV__TcpIpv6Only, PURS_ANY_INT(UV_TCP_IPV6ONLY));
+
+typedef struct purec_tcp_ctx_s purec_tcp_ctx_t;
+struct purec_tcp_ctx_s {
+	STREAM_HANDLE_FIELDS
+};
+
+#define UNPACK_TCP_CTX(DATA)\
+	UNPACK_STREAM_CTX((purec_stream_ctx_t*) (DATA))
+
+PURS_FFI_FUNC_6(UV_tcpNewImpl, Left, Right, Nothing, Just, _loop, _, {
+	uv_loop_t *loop = purs_any_get_foreign(_loop)->data;
+	uv_tcp_t  *handle = purs_new(uv_tcp_t);
+	purec_tcp_ctx_t * hctx = purs_new(purec_tcp_ctx_t);
+	hctx->Left = Left;
+	hctx->Right = Right;
+	hctx->Nothing = Nothing;
+	hctx->Just = Just;
+	handle->data = hctx;
+	return TO_EITHER(
+		uv_tcp_init(loop, handle),
+		purs_any_foreign_new(NULL, handle));
+});
+
+PURS_FFI_FUNC_4(UV_tcpBindImpl, _addr, _flags, _handle, _, {
+	uv_tcp_t *handle = purs_any_get_foreign(_handle)->data;
+	const struct sockaddr *addr = purs_any_get_foreign(_addr)->data;
+	int flags = build_flags(_flags);
+	UNPACK_TCP_CTX(handle->data);
+	return TO_EITHER(uv_tcp_bind(handle, addr, flags), NULL);
 });
 
 /*******************************************************************************
@@ -147,18 +224,19 @@ PURS_FFI_FUNC_6(UV_udpNewImpl, Left, Right, Nothing, Just, _loop, _, {
 		purs_any_foreign_new(NULL, handle));
 });
 
-PURS_FFI_FUNC_6(UV_udpBindImpl, Left, Right, _addr, _flags, _handle, _, {
+PURS_FFI_FUNC_4(UV_udpBindImpl, _addr, _flags, _handle, _, {
 	uv_udp_t *handle = purs_any_get_foreign(_handle)->data;
 	int flags = build_flags(_flags);
+	UNPACK_UDP_CTX(handle);
 	const struct sockaddr *addr = purs_any_get_foreign(_addr)->data;
 	return TO_EITHER(uv_udp_bind(handle, addr, flags), NULL);
 });
 
-static void udp_recv_cb(uv_udp_t* handle,
-			ssize_t nread,
-			const uv_buf_t* buf,
-			const struct sockaddr* addr,
-			unsigned flags) {
+static void purec__udp_recv_cb(uv_udp_t* handle,
+			       ssize_t nread,
+			       const uv_buf_t* buf,
+			       const struct sockaddr* addr,
+			       unsigned flags) {
 
 	const purec_udp_ctx_t * ctx = handle->data;
 	UNPACK_UDP_CTX(handle);
@@ -207,7 +285,7 @@ PURS_FFI_FUNC_3(UV_udpRecvStartImpl, _recvCont, _handle, _, {
 	UNPACK_UDP_CTX(handle)
 	assert(ctx->on_recv_cont == NULL);
 	ctx->on_recv_cont = _recvCont;
-	return TO_EITHER(uv_udp_recv_start(handle, alloc_cb, udp_recv_cb), NULL);
+	return TO_EITHER(uv_udp_recv_start(handle, purec__alloc_buf_cb, purec__udp_recv_cb), NULL);
 });
 
 PURS_FFI_FUNC_5(UV_udpSetBroadcastImpl, Left, Right, _on, _handle, _, {
@@ -221,7 +299,7 @@ struct purec_udp_send_ctx_s {
 	const purs_any_t * on_send_cont;
 };
 
-void purec_udp_send_cb (uv_udp_send_t* req, int status) {
+void purec__udp_send_cb (uv_udp_send_t* req, int status) {
 	const purec_udp_send_ctx_t * ctx = req->data;
 
 	UNPACK_UDP_CTX(req->handle)
@@ -259,6 +337,6 @@ PURS_FFI_FUNC_5(UV_udpSendImpl, _bufs, _addr, _cb, _handle, _, {
 			    bufs,
 			    bufs_vec->length,
 			    addr,
-			    purec_udp_send_cb),
+			    purec__udp_send_cb),
 		NULL);
 });
