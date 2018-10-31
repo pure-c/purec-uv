@@ -24,8 +24,6 @@ main = logResult =<< runExceptT do
     Console.log $ "Received: " <> show mS
 
   sendH <- UV.udpNew loop
-  UV.udpBind (UV.ip4Addr "0.0.0.0" 1235) [ UV._UdpReuseAddr ] sendH
-  UV.udpSetBroadcast true sendH
 
   buf <- lift $ UV.bufferFromString "hello"
   UV.udpSend [ buf ] (UV.ip4Addr "0.0.0.0" 1234)
