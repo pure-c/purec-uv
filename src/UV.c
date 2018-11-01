@@ -158,9 +158,24 @@ static void purec__on_read_cb (uv_stream_t* handle,
 	UNPACK_STREAM_CTX(handle);
 	purec_stream_ctx_t *ctx = handle->data;
 	assert(ctx->on_read_cont != NULL);
-	/* TODO: interpret arguments and call callback
-	         see: http://docs.libuv.org/en/v1.x/stream.html#c.uv_read_cb
-	 */
+
+	const purs_any_t * result;
+	if (nread == UV_EOF) {
+		result = purs_any_app(Right, Nothing);
+	} else if (nread < 0) {
+		result = purs_any_app(Left, purs_any_int_new(nread));
+	} else {
+		uv_buf_t *buf_out = purs_new(uv_buf_t);
+		purs_realloc(buf->base, nread);
+		buf_out->len = nread;
+		buf_out->base = buf->base;
+		result = purs_any_app(Right,
+				      purs_any_app(Just,
+						   purs_any_foreign_new(NULL,
+									buf_out)));
+	}
+
+	purs_any_app(purs_any_app(ctx->on_read_cont, result), NULL);
 }
 
 PURS_FFI_FUNC_3(UV_readStartImpl, _cb, _handle, _, {
@@ -172,6 +187,40 @@ PURS_FFI_FUNC_3(UV_readStartImpl, _cb, _handle, _, {
 	return TO_EITHER(uv_read_start(handle,
 				       purec__alloc_buf_cb,
 				       purec__on_read_cb), NULL);
+});
+
+void purec__write_cb (uv_write_t* req, int status) {
+	const purs_any_t * cont = req->data;
+	UNPACK_STREAM_CTX(req->handle)
+	purs_any_app(purs_any_app(cont,
+				  TO_EITHER(status, NULL)), NULL);
+}
+
+PURS_FFI_FUNC_4(UV_writeImpl, _bufs, _cb, _handle, _, {
+	const purs_vec_t * bufs_vec = purs_any_get_array(_bufs);
+	uv_stream_t * handle = purs_any_get_foreign(_handle)->data;
+	UNPACK_STREAM_CTX(handle)
+	uv_write_t *req = purs_new(uv_write_t);
+	req->data = (void*) _cb;
+
+	/* shallow copy buffer structure */
+	uv_buf_t* bufs = purs_malloc(bufs_vec->length * sizeof(uv_buf_t));
+	{
+		int i;
+		const purs_any_t *tmp;
+		purs_vec_foreach(bufs_vec, tmp, i) {
+			const uv_buf_t *buf = purs_any_get_foreign(tmp)->data;
+			memcpy(&bufs[i], buf, sizeof(uv_buf_t));
+		}
+	}
+
+	return TO_EITHER(
+		uv_write(req,
+			 handle,
+			 bufs,
+			 bufs_vec->length,
+			 purec__write_cb),
+		NULL);
 });
 
 /*******************************************************************************
@@ -346,15 +395,10 @@ PURS_FFI_FUNC_5(UV_udpSetBroadcastImpl, Left, Right, _on, _handle, _, {
 	return TO_EITHER(uv_udp_set_broadcast(handle, on), NULL);
 });
 
-typedef struct purec_udp_send_ctx_s purec_udp_send_ctx_t;
-struct purec_udp_send_ctx_s {
-	const purs_any_t * on_send_cont;
-};
-
 void purec__udp_send_cb (uv_udp_send_t* req, int status) {
-	const purec_udp_send_ctx_t * ctx = req->data;
+	const purs_any_t * cont = req->data;
 	UNPACK_UDP_CTX(req->handle)
-	purs_any_app(purs_any_app(ctx->on_send_cont,
+	purs_any_app(purs_any_app(cont,
 				  TO_EITHER(status, NULL)), NULL);
 }
 
@@ -365,18 +409,15 @@ PURS_FFI_FUNC_5(UV_udpSendImpl, _bufs, _addr, _cb, _handle, _, {
 
 	UNPACK_UDP_CTX(handle)
 
-	purec_udp_send_ctx_t * ctx = purs_new(purec_udp_send_ctx_t);
-	ctx->on_send_cont = _cb;
-
 	uv_udp_send_t *req = purs_new(uv_udp_send_t);
-	req->data = ctx;
+	req->data = (void*) _cb;
 
+	/* shallow copy buffer structure */
 	uv_buf_t* bufs = purs_malloc(bufs_vec->length * sizeof(uv_buf_t));
 	{
 		int i;
 		const purs_any_t *tmp;
 		purs_vec_foreach(bufs_vec, tmp, i) {
-			/* shallow copy buffer structure */
 			const uv_buf_t *buf = purs_any_get_foreign(tmp)->data;
 			memcpy(&bufs[i], buf, sizeof(uv_buf_t));
 		}

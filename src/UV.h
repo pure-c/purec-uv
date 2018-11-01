@@ -13,6 +13,7 @@ PURS_FFI_EXPORT(UV_runImpl);
 
 PURS_FFI_EXPORT(UV_listenImpl);
 PURS_FFI_EXPORT(UV_readStartImpl);
+PURS_FFI_EXPORT(UV_writeImpl);
 
 PURS_FFI_EXPORT(UV_ip4Addr);
 

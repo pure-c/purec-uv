@@ -5,7 +5,7 @@ import Prelude
 import Control.Monad.Except (ExceptT(..), runExceptT)
 import Control.Monad.Trans.Class (lift)
 import Data.Either (Either(..))
-import Data.Maybe (Maybe)
+import Data.Maybe (Maybe(..))
 import Data.Symbol (reflectSymbol)
 import Data.Traversable (traverse)
 import Data.Variant as V
@@ -55,17 +55,32 @@ main = logResult =<< runExceptT do
           Left err ->
             lift $ Console.log $ "tcp server: listen failure: " <> renderErrCode err
           Right clientH -> do
-            lift $ Console.log $ "tcp server: listen success"
-            UV.readStart <@> clientH $ \_ ->
-              Console.log "tcp server: read something"
+            lift $ Console.log $ "tcp: server: listen success"
+            UV.readStart <@> clientH $ \result ->
+              case result of
+                Left err ->
+                  Console.log $ "tcp: read: failure: " <> renderErrCode err
+                Right Nothing ->
+                  Console.log "tcp: read: EOF"
+                Right (Just buf) -> do
+                  s <- UV.bufferToString buf
+                  Console.log $ "tcp: read: " <> s
 
     clientH <- UV.tcpNew loop
     UV.tcpConnect serverAddr <@> clientH $ \result -> do
       case result of
         Left err ->
-          Console.log $ "tcp connect: failure: " <> renderErrCode err
+          Console.log $ "tcp: connect: failure: " <> renderErrCode err
         Right _ ->
-          Console.log "tcp connect: success"
+          Console.log "tcp: connect: success"
+
+    buf <- lift $ UV.bufferFromString "tcp: hello"
+    UV.write [ buf ] <@> clientH $ \result -> do
+      case result of
+        Left err ->
+          Console.log $ "tcp: write: failure: " <> renderErrCode err
+        Right _ ->
+          Console.log "tcp: write: success"
 
     pure unit -- To be continued ...
 
@@ -79,7 +94,7 @@ main = logResult =<< runExceptT do
 
     sendH <- UV.udpNew loop
 
-    buf <- lift $ UV.bufferFromString "hello"
+    buf <- lift $ UV.bufferFromString "udp: hello"
     UV.udpSend [ buf ] (UV.ip4Addr "0.0.0.0" 1234)
       (case _ of
         Right _ ->

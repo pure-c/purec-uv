@@ -39,6 +39,7 @@ errCode
       , udpSend :: Error
       , listen :: Error
       , readStart :: Error
+      , write :: Error
       )
   -> Error
 errCode e =
@@ -79,7 +80,7 @@ foreign import runImpl
   -> Effect (Either Error Unit)
 
 --------------------------------------------------------------------------------
--- Streams (TODO)
+-- Streams
 --------------------------------------------------------------------------------
 
 foreign import data StreamHandle :: Type
@@ -121,7 +122,7 @@ _readStart = SProxy
 readStart
   :: ∀ h es
    . IsStreamHandle h
-  => (Unit -> Effect Unit)
+  => (Either Error (Maybe Buffer) -> Effect Unit)
   -> h
   -> Handler (readStart :: Error | es) Unit
 readStart cb h =
@@ -130,7 +131,28 @@ readStart cb h =
 
 foreign import readStartImpl
   :: ∀ es
-   . (Unit -> Effect Unit)
+   . (Either Error (Maybe Buffer) -> Effect Unit)
+  -> StreamHandle
+  -> Effect (Either Error Unit)
+
+_write :: SProxy "write"
+_write = SProxy
+
+write
+  :: ∀ h es
+   . IsStreamHandle h
+  => Array Buffer
+  -> (Either Error Unit -> Effect Unit)
+  -> h
+  -> Handler (write :: Error | es) Unit
+write bufs cb h =
+  withExceptT (V.inj _write) $
+    ExceptT $ writeImpl bufs cb $ toStreamHandle h
+
+foreign import writeImpl
+  :: ∀ es
+   . Array Buffer
+  -> (Either Error Unit -> Effect Unit)
   -> StreamHandle
   -> Effect (Either Error Unit)
 
