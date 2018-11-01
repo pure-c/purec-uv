@@ -2,7 +2,7 @@ module Main where
 
 import Prelude
 
-import Control.Monad.Except (runExceptT)
+import Control.Monad.Except (ExceptT(..), runExceptT)
 import Control.Monad.Trans.Class (lift)
 import Data.Either (Either(..))
 import Data.Maybe (Maybe)
@@ -41,6 +41,7 @@ main = logResult =<< runExceptT do
       k \sym _ ->
         reflectSymbol sym
 
+  testTcp :: _ -> UV.Handler _ Unit
   testTcp loop = do
     let
       serverAddr =
@@ -49,6 +50,7 @@ main = logResult =<< runExceptT do
     serverH <- UV.tcpNew loop
     UV.tcpBind serverAddr [] serverH
     UV.listen (UV.Backlog 128) <@> serverH $ \result -> do
+      pure unit
       logResult =<< runExceptT do
         case result of
           Left _ ->
@@ -57,9 +59,10 @@ main = logResult =<< runExceptT do
             UV.readStart <@> clientH $ \_ ->
               Console.log "tcp server: read something"
 
-    clientH <- UV.tcpNew loop
+    client <- UV.tcpNew loop
     pure unit -- To be continued ...
 
+  testUdp :: _ -> UV.Handler _ Unit
   testUdp loop = do
     recvH <- UV.udpNew loop
     UV.udpBind (UV.ip4Addr "0.0.0.0" 1234) [ UV._UdpReuseAddr ] recvH

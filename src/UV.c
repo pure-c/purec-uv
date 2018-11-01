@@ -9,6 +9,32 @@
 			: purs_any_app(Left, purs_any_int_new(__ret));\
 	})
 
+#define BASE_HANDLE_FIELDS\
+	uv_handle_type type;\
+	const purs_any_t * Left;\
+	const purs_any_t * Right;\
+	const purs_any_t * Nothing;\
+	const purs_any_t * Just;
+
+typedef struct purec_base_ctx_s purec_base_ctx_t;
+struct purec_base_ctx_s {
+	BASE_HANDLE_FIELDS
+};
+
+#define UNPACK_BASE_CTX(DATA)\
+	const purs_any_t * Left = ((purec_base_ctx_t*) (DATA))->Left;\
+	const purs_any_t * Right = ((purec_base_ctx_t*) (DATA))->Right;\
+	const purs_any_t * Nothing = ((purec_base_ctx_t*) (DATA))->Nothing;\
+	const purs_any_t * Just = ((purec_base_ctx_t*) (DATA))->Just;
+
+#define INIT_BASE_HANDLE(HANDLE, STRUCT_TYPE, HANDLE_TYPE)\
+	(HANDLE)->data = purs_new(STRUCT_TYPE);\
+	((purec_base_ctx_t*)((HANDLE)->data))->type = HANDLE_TYPE;\
+	((purec_base_ctx_t*)((HANDLE)->data))->Left = Left;\
+	((purec_base_ctx_t*)((HANDLE)->data))->Right = Right;\
+	((purec_base_ctx_t*)((HANDLE)->data))->Nothing = Nothing;\
+	((purec_base_ctx_t*)((HANDLE)->data))->Just = Just;
+
 PURS_FFI_VALUE(UV__RunDefault, PURS_ANY_INT(UV_RUN_DEFAULT));
 PURS_FFI_VALUE(UV__RunOnce, PURS_ANY_INT(UV_RUN_ONCE));
 PURS_FFI_VALUE(UV__RunNoWait, PURS_ANY_INT(UV_RUN_NOWAIT));
@@ -66,22 +92,13 @@ int build_flags (const purs_any_t * flags) {
  ******************************************************************************/
 
 #define STREAM_HANDLE_FIELDS\
-	const purs_any_t * Left;\
-	const purs_any_t * Right;\
-	const purs_any_t * Nothing;\
-	const purs_any_t * Just;\
-	const purs_any_t * on_connection_cont;\
+	BASE_HANDLE_FIELDS\
+	const purs_any_t * on_connection_cont;
 
 typedef struct purec_stream_ctx_s purec_stream_ctx_t;
 struct purec_stream_ctx_s {
 	STREAM_HANDLE_FIELDS
 };
-
-#define UNPACK_STREAM_CTX(DATA)\
-	const purs_any_t * Left = ((purec_stream_ctx_t*) (DATA))->Left;\
-	const purs_any_t * Right = ((purec_stream_ctx_t*) (DATA))->Right;\
-	const purs_any_t * Nothing = ((purec_stream_ctx_t*) (DATA))->Nothing;\
-	const purs_any_t * Just = ((purec_stream_ctx_t*) (DATA))->Just;
 
 static void purec__on_read_cb (uv_stream_t* stream,
 			       ssize_t nread,
@@ -90,26 +107,31 @@ static void purec__on_read_cb (uv_stream_t* stream,
 
 static void purec__on_connection_cb (uv_stream_t *server_handle, int status) {
 	purec_stream_ctx_t *ctx = server_handle->data;
-	UNPACK_STREAM_CTX(server_handle->data);
-
+	UNPACK_BASE_CTX(server_handle->data);
 	assert(ctx->on_connection_cont != NULL);
-
-	uv_tcp_t  *client_handle = purs_new(uv_tcp_t);
-	uv_tcp_init(server_handle->loop, client_handle);
-
-	purs_any_app(
+	switch (ctx->type) {
+	case UV_TCP: {
+		uv_tcp_t  *client_handle = purs_new(uv_tcp_t);
+		uv_tcp_init(server_handle->loop, client_handle);
 		purs_any_app(
-			ctx->on_connection_cont,
-			TO_EITHER(
-				uv_accept(server_handle, (uv_stream_t*) client_handle),
-				purs_any_foreign_new(NULL, client_handle))),
-		NULL);
+			purs_any_app(
+				ctx->on_connection_cont,
+				TO_EITHER(
+					uv_accept(server_handle, (uv_stream_t*) client_handle),
+					purs_any_foreign_new(NULL, client_handle))),
+			NULL);
+	}
+	default:
+		purs_assert(0,
+			    "on_connection_cb: NOT IMPLEMENTED (type:%i)",
+			    ctx->type);
+	}
 }
 
 PURS_FFI_FUNC_4(UV_listenImpl, _backlog, _cb, _handle, _, {
 	uv_stream_t  *handle = purs_any_get_foreign(_handle)->data;
 	int backlog = purs_any_get_int(_backlog);
-	UNPACK_STREAM_CTX(handle->data);
+	UNPACK_BASE_CTX(handle->data);
 	purec_stream_ctx_t *ctx = handle->data;
 	assert(ctx->on_connection_cont == NULL);
 	ctx->on_connection_cont = _cb;
@@ -163,17 +185,12 @@ struct purec_tcp_ctx_s {
 };
 
 #define UNPACK_TCP_CTX(DATA)\
-	UNPACK_STREAM_CTX((purec_stream_ctx_t*) (DATA))
+	UNPACK_BASE_CTX((purec_stream_ctx_t*) (DATA))
 
 PURS_FFI_FUNC_6(UV_tcpNewImpl, Left, Right, Nothing, Just, _loop, _, {
 	uv_loop_t *loop = purs_any_get_foreign(_loop)->data;
 	uv_tcp_t  *handle = purs_new(uv_tcp_t);
-	purec_tcp_ctx_t * hctx = purs_new(purec_tcp_ctx_t);
-	hctx->Left = Left;
-	hctx->Right = Right;
-	hctx->Nothing = Nothing;
-	hctx->Just = Just;
-	handle->data = hctx;
+	INIT_BASE_HANDLE(handle, purec_tcp_ctx_t, UV_TCP);
 	return TO_EITHER(
 		uv_tcp_init(loop, handle),
 		purs_any_foreign_new(NULL, handle));
@@ -197,11 +214,8 @@ PURS_FFI_VALUE(UV__UdpReuseAddr, PURS_ANY_INT(UV_UDP_REUSEADDR));
 
 typedef struct purec_udp_ctx_s purec_udp_ctx_t;
 struct purec_udp_ctx_s {
+	BASE_HANDLE_FIELDS;
 	const purs_any_t * on_recv_cont;
-	const purs_any_t * Left;
-	const purs_any_t * Right;
-	const purs_any_t * Nothing;
-	const purs_any_t * Just;
 };
 
 #define UNPACK_UDP_CTX(HANDLE)\
@@ -213,12 +227,7 @@ struct purec_udp_ctx_s {
 PURS_FFI_FUNC_6(UV_udpNewImpl, Left, Right, Nothing, Just, _loop, _, {
 	uv_loop_t *loop = purs_any_get_foreign(_loop)->data;
 	uv_udp_t  *handle = purs_new(uv_udp_t);
-	purec_udp_ctx_t * hctx = purs_new(purec_udp_ctx_t);
-	hctx->Left = Left;
-	hctx->Right = Right;
-	hctx->Nothing = Nothing;
-	hctx->Just = Just;
-	handle->data = hctx;
+	INIT_BASE_HANDLE(handle, purec_udp_ctx_t, UV_UDP);
 	return TO_EITHER(
 		uv_udp_init(loop, handle),
 		purs_any_foreign_new(NULL, handle));

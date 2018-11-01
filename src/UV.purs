@@ -31,6 +31,7 @@ errCode
       ( run :: Error
       , tcpNew :: Error
       , tcpBind :: Error
+      , tcpConnect :: Error
       , udpNew :: Error
       , udpBind :: Error
       , udpRecvStart :: Error
@@ -204,6 +205,27 @@ tcpBind addr flags handle =
 foreign import tcpBindImpl
   :: SockAddrIn
   -> Array TcpFlag
+  -> TcpHandle
+  -> Effect (Either Error Unit)
+
+_tcpConnect :: SProxy "tcpConnect"
+_tcpConnect = SProxy
+
+tcpConnect
+  :: ∀ es sockAddr
+   . IsSockAddr sockAddr
+  => sockAddr
+  -> (Either Error Unit -> Effect Unit)
+  -> TcpHandle
+  -> Handler (tcpConnect :: Error | es) Unit
+tcpConnect addr cb handle =
+  withExceptT (V.inj _tcpConnect) $
+    ExceptT $
+      tcpConnectImpl (toSockAddr addr) cb handle
+
+foreign import tcpConnectImpl
+  :: SockAddr
+  -> (Either Error Unit -> Effect Unit)
   -> TcpHandle
   -> Effect (Either Error Unit)
 

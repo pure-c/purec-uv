@@ -21,6 +21,7 @@ PURS_FFI_EXPORT(UV_bufferToString);
 
 PURS_FFI_EXPORT(UV_tcpNewImpl);
 PURS_FFI_EXPORT(UV_tcpBindImpl);
+PURS_FFI_EXPORT(UV_tcpConnectImpl);
 
 PURS_FFI_EXPORT(UV__UdpIpv6Only);
 PURS_FFI_EXPORT(UV__UdpPartial);
