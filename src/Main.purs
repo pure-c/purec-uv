@@ -50,16 +50,23 @@ main = logResult =<< runExceptT do
     serverH <- UV.tcpNew loop
     UV.tcpBind serverAddr [] serverH
     UV.listen (UV.Backlog 128) <@> serverH $ \result -> do
-      pure unit
       logResult =<< runExceptT do
         case result of
-          Left _ ->
-            lift $ Console.log "tcp server: listen failure"
-          Right clientH ->
+          Left err ->
+            lift $ Console.log $ "tcp server: listen failure: " <> renderErrCode err
+          Right clientH -> do
+            lift $ Console.log $ "tcp server: listen success"
             UV.readStart <@> clientH $ \_ ->
               Console.log "tcp server: read something"
 
-    client <- UV.tcpNew loop
+    clientH <- UV.tcpNew loop
+    UV.tcpConnect serverAddr <@> clientH $ \result -> do
+      case result of
+        Left err ->
+          Console.log $ "tcp connect: failure: " <> renderErrCode err
+        Right _ ->
+          Console.log "tcp connect: success"
+
     pure unit -- To be continued ...
 
   testUdp :: _ -> UV.Handler _ Unit
@@ -68,7 +75,7 @@ main = logResult =<< runExceptT do
     UV.udpBind (UV.ip4Addr "0.0.0.0" 1234) [ UV._UdpReuseAddr ] recvH
     UV.udpRecvStart <@> recvH $ \(mBuf :: Maybe UV.Buffer) -> do
       mS <- traverse UV.bufferToString mBuf
-      Console.log $ "Received: " <> show mS
+      Console.log $ "udp: received: " <> show mS
 
     sendH <- UV.udpNew loop
 
@@ -76,7 +83,7 @@ main = logResult =<< runExceptT do
     UV.udpSend [ buf ] (UV.ip4Addr "0.0.0.0" 1234)
       (case _ of
         Right _ ->
-          Console.log "sent"
+          Console.log "udp: sent"
         Left errCode ->
           Console.log $ renderErrCode errCode
       ) sendH
