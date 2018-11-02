@@ -12,6 +12,7 @@ import Data.Variant as V
 import Effect (Effect)
 import Effect.Console as Console
 import UV as UV
+import UV.Buffer as UV.Buffer
 
 main :: Effect Unit
 main = logResult =<< runExceptT do
@@ -63,7 +64,7 @@ main = logResult =<< runExceptT do
                 Right Nothing ->
                   Console.log "tcp: read: EOF"
                 Right (Just buf) -> do
-                  s <- UV.bufferToString buf
+                  s <- UV.Buffer.toString buf
                   Console.log $ "tcp: read: " <> s
 
     clientH <- UV.tcpNew loop
@@ -74,7 +75,7 @@ main = logResult =<< runExceptT do
         Right _ ->
           Console.log "tcp: connect: success"
 
-    buf <- lift $ UV.bufferFromString "tcp: hello"
+    buf <- lift $ UV.Buffer.fromString "tcp: hello"
     UV.write [ buf ] <@> clientH $ \result -> do
       case result of
         Left err ->
@@ -88,13 +89,13 @@ main = logResult =<< runExceptT do
   testUdp loop = do
     recvH <- UV.udpNew loop
     UV.udpBind (UV.ip4Addr "0.0.0.0" 1234) [ UV._UdpReuseAddr ] recvH
-    UV.udpRecvStart <@> recvH $ \(mBuf :: Maybe UV.Buffer) -> do
-      mS <- traverse UV.bufferToString mBuf
+    UV.udpRecvStart <@> recvH $ \mBuf -> do
+      mS <- traverse UV.Buffer.toString mBuf
       Console.log $ "udp: received: " <> show mS
 
     sendH <- UV.udpNew loop
 
-    buf <- lift $ UV.bufferFromString "udp: hello"
+    buf <- lift $ UV.Buffer.fromString "udp: hello"
     UV.udpSend [ buf ] (UV.ip4Addr "0.0.0.0" 1234)
       (case _ of
         Right _ ->
