@@ -22,7 +22,7 @@ PURS_FFI_FUNC_6(UV_Udp_udpNewImpl, Left, Right, Nothing, Just, _loop, _, {
 
 PURS_FFI_FUNC_4(UV_Udp_udpBindImpl, _addr, _flags, _handle, _, {
 	uv_udp_t *handle = purs_any_get_foreign(_handle)->data;
-	int flags = build_flags(_flags);
+	int flags = purec_uv_build_flags(_flags);
 	UNPACK_UDP_CTX(handle);
 	const struct sockaddr *addr = purs_any_get_foreign(_addr)->data;
 	return TO_EITHER(uv_udp_bind(handle, addr, flags), NULL);

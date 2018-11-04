@@ -21,7 +21,7 @@ PURS_FFI_FUNC_6(UV_Tcp_tcpNewImpl, Left, Right, Nothing, Just, _loop, _, {
 PURS_FFI_FUNC_4(UV_Tcp_tcpBindImpl, _addr, _flags, _handle, _, {
 	uv_tcp_t *handle = purs_any_get_foreign(_handle)->data;
 	const struct sockaddr *addr = purs_any_get_foreign(_addr)->data;
-	int flags = build_flags(_flags);
+	int flags = purec_uv_build_flags(_flags);
 	UNPACK_TCP_CTX(handle);
 	return TO_EITHER(uv_tcp_bind(handle, addr, flags), NULL);
 });
