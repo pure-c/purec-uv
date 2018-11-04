@@ -1,5 +1,6 @@
 module Main where
 
+import Effect.Aff
 import Prelude
 
 import Control.Monad.Except (ExceptT(..), runExceptT)
@@ -10,6 +11,7 @@ import Data.Symbol (reflectSymbol)
 import Data.Traversable (traverse)
 import Data.Variant as V
 import Effect (Effect)
+import Effect.Class (liftEffect)
 import Effect.Console as Console
 import UV as UV
 import UV.Buffer as UV.Buffer
@@ -18,6 +20,7 @@ main :: Effect Unit
 main = logResult =<< runExceptT do
   loop <- lift UV.defaultLoop
 
+  lift $ testAff
   testUdp loop
   testTcp loop
 
@@ -41,6 +44,11 @@ main = logResult =<< runExceptT do
     V.unvariant v # \(V.Unvariant k) ->
       k \sym _ ->
         reflectSymbol sym
+
+  testAff :: Effect Unit
+  testAff = void $ launchAff do
+    pure unit
+    liftEffect $ Console.log "Hello from Aff"
 
   testTcp :: _ -> UV.Handler _ Unit
   testTcp loop = do
