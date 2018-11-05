@@ -7,6 +7,7 @@ typedef enum {
 	AFF_TAG_PURE = 0,
 	AFF_TAG_BIND = 1,
 	AFF_TAG_SYNC = 2,
+	AFF_TAG_ASYNC = 3,
 } aff_tag_t;
 
 typedef struct aff_s aff_t;
@@ -75,8 +76,8 @@ aff_t * aff_pure_new(const purs_any_t * a) {
 
 aff_t * aff_async_new(const purs_any_t * value0) {
 	aff_t * aff = purs_new(aff_t);
-	aff->tag = AFF_TAG_SYNC;
-	aff->sync.value0 = value0;
+	aff->tag = AFF_TAG_ASYNC;
+	aff->async.value0 = value0;
 	return aff;
 }
 
@@ -203,7 +204,32 @@ const purs_any_t * run_sync(const utils_t * utils,
 			    purs_any_app(effect, NULL));
 }
 
-void fiber_run(fiber_t * fiber, uint32_t local_tick) {
+const purs_any_t * run_async(const utils_t * utils,
+			     const purs_any_t * effect,
+			     const purs_any_t * k) {
+	return purs_any_app(purs_any_app(effect, k), NULL);
+}
+
+PURS_FFI_FUNC_4(runAsync, _localRunTick, _fiber, result, _, {
+	printf("HELLO!!!\n");
+	return NULL;
+});
+
+/* run_async_1(void * ctx, purs_any_t * result, va_list _) { */
+
+              /* return function () { */
+              /*   if (runTick !== localRunTick) { */
+              /*     return; */
+              /*   } */
+              /*   runTick++; */
+              /*   Scheduler.enqueue(function () { */
+              /*     status = STEP_RESULT; */
+              /*     step   = result; */
+              /*     run(runTick); */
+              /*   }); */
+              /* }; */
+
+void fiber_run(fiber_t * fiber, uint32_t local_run_tick) {
 	while (1) {
 		printf("fiber->state: %i\n", fiber->state);
 		switch (fiber->state) {
@@ -284,7 +310,20 @@ void fiber_run(fiber_t * fiber, uint32_t local_tick) {
 					fiber->step = step_val_new(
 						run_sync(fiber->utils,
 							 fiber->step->aff->sync.value0));
-				    break;
+					break;
+				}
+				case AFF_TAG_ASYNC: {
+					fiber->state = FIBER_STATE_PENDING;
+					fiber->step = step_val_new(
+						run_async(
+							fiber->utils,
+							fiber->step->aff->async.value0,
+							purs_any_app(
+								purs_any_app(
+									runAsync,
+									purs_any_int_new(local_run_tick)),
+								TO_FOREIGN(fiber))));
+					break;
 				}
 				}
 				break;
@@ -332,6 +371,10 @@ PURS_FFI_FUNC_8(Effect_Aff_makeFiberImpl,
 
 	return TO_FOREIGN(fiber);
 });
+
+/* PURS_FFI_FUNC_1(Effect_Aff_makeAff, action, { */
+/* 	return TO_FOREIGN(aff_async_new(action)); */
+/* }); */
 
 PURS_FFI_FUNC_2(Effect_Aff_runFiber, _fiber, _, {
 	fiber_t *fiber = FROM_FOREIGN(_fiber);

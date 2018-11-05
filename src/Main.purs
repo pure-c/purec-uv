@@ -21,8 +21,8 @@ main = logResult =<< runExceptT do
   loop <- lift UV.defaultLoop
 
   lift $ testAff
-  testUdp loop
-  testTcp loop
+  -- testUdp loop
+  -- testTcp loop
 
   UV.run loop UV._RunDefault
 
