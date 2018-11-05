@@ -8,6 +8,8 @@ typedef enum {
 	AFF_TAG_BIND = 1,
 	AFF_TAG_SYNC = 2,
 	AFF_TAG_ASYNC = 3,
+	AFF_TAG_THROW = 4,
+	AFF_TAG_CATCH = 5,
 } aff_tag_t;
 
 typedef struct aff_s aff_t;
@@ -59,6 +61,16 @@ struct aff_s {
 			const purs_any_t * value0;
 		} sync;
 
+		/* Catch (Aff e a) (e -> Aff e a) */
+		struct {
+			const purs_any_t * value0;
+		} catch;
+
+		/* Throw e */
+		struct {
+			const purs_any_t * value0;
+		} throw;
+
 		/* ∀ b. Bind  (Aff b) (b -> Aff a) */
 		struct {
 			const aff_t * value0;
@@ -94,6 +106,20 @@ aff_t * aff_bind_new(const aff_t * value0, const purs_any_t * value1) {
 	aff_->tag = AFF_TAG_BIND;
 	aff_->bind.value0 = value0;
 	aff_->bind.value1 = value1;
+	return aff_;
+}
+
+aff_t * aff_throw_new(const purs_any_t * value0) {
+	aff_t * aff_ = purs_new(aff_t);
+	aff_->tag = AFF_TAG_THROW;
+	aff_->throw.value0 = value0;
+	return aff_;
+}
+
+aff_t * aff_catch_new(const purs_any_t * value0) {
+	aff_t * aff_ = purs_new(aff_t);
+	aff_->tag = AFF_TAG_CATCH;
+	aff_->catch.value0 = value0;
 	return aff_;
 }
 
@@ -210,24 +236,25 @@ const purs_any_t * run_async(const utils_t * utils,
 	return purs_any_app(purs_any_app(effect, k), NULL);
 }
 
+void fiber_run(fiber_t*, uint32_t);
+
 PURS_FFI_FUNC_4(runAsync, _localRunTick, _fiber, result, _, {
-	printf("HELLO!!!\n");
+	fiber_t * fiber = FROM_FOREIGN(_fiber);
+
+	/* prevent re-entrance */
+	if (purs_any_get_int(_localRunTick) != fiber->run_tick) {
+		return NULL;
+	}
+
+	fiber->run_tick++;
+
+	/* TODO scheduler.enqueue the below */
+	fiber->state = FIBER_STATE_STEP_RESULT;
+	fiber->step = step_val_new(result);
+	fiber_run(fiber, fiber->run_tick);
+
 	return NULL;
 });
-
-/* run_async_1(void * ctx, purs_any_t * result, va_list _) { */
-
-              /* return function () { */
-              /*   if (runTick !== localRunTick) { */
-              /*     return; */
-              /*   } */
-              /*   runTick++; */
-              /*   Scheduler.enqueue(function () { */
-              /*     status = STEP_RESULT; */
-              /*     step   = result; */
-              /*     run(runTick); */
-              /*   }); */
-              /* }; */
 
 void fiber_run(fiber_t * fiber, uint32_t local_run_tick) {
 	while (1) {
@@ -325,6 +352,21 @@ void fiber_run(fiber_t * fiber, uint32_t local_run_tick) {
 								TO_FOREIGN(fiber))));
 					break;
 				}
+				case AFF_TAG_THROW: {
+					fiber->state = FIBER_STATE_RETURN;
+					fiber->failure = step_val_new(
+						utils_to_left(
+							fiber->utils,
+							fiber->step->aff->throw.value0));
+					fiber->step = NULL;
+					break;
+				}
+				/* Enqueue the Catch so that we can call the
+				   error handler later on in case of an
+				   exception. */
+				case AFF_TAG_CATCH: {
+					assert(0); // TODO
+				}
 				}
 				break;
 			}
@@ -372,9 +414,13 @@ PURS_FFI_FUNC_8(Effect_Aff_makeFiberImpl,
 	return TO_FOREIGN(fiber);
 });
 
-/* PURS_FFI_FUNC_1(Effect_Aff_makeAff, action, { */
-/* 	return TO_FOREIGN(aff_async_new(action)); */
-/* }); */
+PURS_FFI_FUNC_1(Effect_Aff__throwError, e, {
+	return TO_FOREIGN(aff_throw_new(e));
+});
+
+PURS_FFI_FUNC_1(Effect_Aff_makeAff, action, {
+	return TO_FOREIGN(aff_async_new(action));
+});
 
 PURS_FFI_FUNC_2(Effect_Aff_runFiber, _fiber, _, {
 	fiber_t *fiber = FROM_FOREIGN(_fiber);
@@ -382,17 +428,6 @@ PURS_FFI_FUNC_2(Effect_Aff_runFiber, _fiber, _, {
 	fiber_run(fiber, fiber->run_tick);
 	return NULL;
 });
-      /* run: function () { */
-      /*   if (status === SUSPENDED) { */
-      /*     if (!Scheduler.isDraining()) { */
-      /*       Scheduler.enqueue(function () { */
-      /*         run(runTick); */
-      /*       }); */
-      /*     } else { */
-      /*       run(runTick); */
-      /*     } */
-      /*   } */
-      /* } */
 
 PURS_FFI_FUNC_1(Effect_Aff__pure, a, {
 	return TO_FOREIGN(aff_pure_new(a));

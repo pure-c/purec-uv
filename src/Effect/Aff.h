@@ -10,5 +10,7 @@ PURS_FFI_EXPORT(Effect_Aff__map);
 PURS_FFI_EXPORT(Effect_Aff__pure);
 PURS_FFI_EXPORT(Effect_Aff__bind);
 PURS_FFI_EXPORT(Effect_Aff__liftEffect);
+PURS_FFI_EXPORT(Effect_Aff__throwError);
+PURS_FFI_EXPORT(Effect_Aff__catchError);
 
 #endif // EFFECT_AFF_H

@@ -2,6 +2,7 @@ module Effect.Aff where
 
 import Prelude
 
+import Control.Monad.Error.Class (class MonadError, class MonadThrow)
 import Data.Either (Either(..))
 import Effect (Effect)
 import Effect.Class (class MonadEffect)
@@ -91,7 +92,15 @@ instance monadEffectAff :: MonadEffect (Aff e) where
 
 instance monadAff :: Monad (Aff e)
 
+instance monadThrowAff :: MonadThrow e (Aff e) where
+  throwError = _throwError
+
+instance monadErrorAff :: MonadError e (Aff e) where
+  catchError = _catchError
+
+foreign import _throwError :: ∀ e a. e -> Aff e a
+foreign import _catchError :: ∀ e a. Aff e a -> (e -> Aff e a) -> Aff e a
 foreign import _liftEffect :: ∀ e a. Effect a -> Aff e a
-foreign import _pure :: ∀ e a. a → Aff e a
+foreign import _pure :: ∀ e a. a -> Aff e a
 foreign import _map :: ∀ e a b. (a -> b) -> Aff e a -> Aff e b
 foreign import _bind :: ∀ e a b. Aff e a -> (a -> Aff e b) -> Aff e b

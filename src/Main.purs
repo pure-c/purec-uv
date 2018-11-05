@@ -3,6 +3,7 @@ module Main where
 import Effect.Aff
 import Prelude
 
+import Control.Monad.Error.Class (throwError)
 import Control.Monad.Except (ExceptT(..), runExceptT)
 import Control.Monad.Trans.Class (lift)
 import Data.Either (Either(..))
@@ -15,6 +16,7 @@ import Effect.Class (liftEffect)
 import Effect.Console as Console
 import UV as UV
 import UV.Buffer as UV.Buffer
+import Unsafe.Coerce (unsafeCoerce)
 
 main :: Effect Unit
 main = logResult =<< runExceptT do
@@ -47,8 +49,17 @@ main = logResult =<< runExceptT do
 
   testAff :: Effect Unit
   testAff = void $ launchAff do
-    pure unit
-    liftEffect $ Console.log "Hello from Aff"
+    let
+      serverAddr =
+        UV.ip4Addr "0.0.0.0" 4321
+
+    void $ throwError unit
+
+    msg <- makeAff \cb -> do
+      cb (Right "Hello from Aff")
+      pure (unsafeCoerce unit)
+
+    liftEffect $ Console.log msg
 
   testTcp :: _ -> UV.Handler _ Unit
   testTcp loop = do
