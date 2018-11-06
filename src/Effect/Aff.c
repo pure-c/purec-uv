@@ -10,6 +10,7 @@ typedef enum {
 	AFF_TAG_ASYNC = 3,
 	AFF_TAG_THROW = 4,
 	AFF_TAG_CATCH = 5,
+	AFF_TAG_CONS = 6,
 } aff_tag_t;
 
 typedef struct aff_s aff_t;
@@ -40,6 +41,19 @@ const step_t * step_aff_new (const aff_t * aff) {
 	step->tag = STEP_TAG_AFF;
 	step->aff = aff;
 	return step;
+}
+
+typedef struct cons_s cons_t;
+struct cons_s {
+	const step_t * head;
+	const cons_t * tail;
+};
+
+cons_t * cons_new(const step_t * head, const cons_t * tail) {
+	cons_t * cons = purs_new(cons_t);
+	cons->head = head;
+	cons->tail = tail;
+	return cons;
 }
 
 struct aff_s {
@@ -76,6 +90,12 @@ struct aff_s {
 			const aff_t * value0;
 			const purs_any_t * value1;
 		} bind;
+
+		/* ??? */
+		struct {
+			const cons_t * value0; /* ??? */
+			const purs_any_t * value1; /* interrupt */
+		} cons;
 	};
 };
 
@@ -86,13 +106,20 @@ aff_t * aff_pure_new(const purs_any_t * a) {
 	return aff;
 }
 
+aff_t * aff_cons_new(const cons_t * value0, const purs_any_t * value1) {
+	aff_t * aff = purs_new(aff_t);
+	aff->tag = AFF_TAG_CONS;
+	aff->cons.value0 = value0;
+	aff->cons.value1 = value1;
+	return aff;
+}
+
 aff_t * aff_async_new(const purs_any_t * value0) {
 	aff_t * aff = purs_new(aff_t);
 	aff->tag = AFF_TAG_ASYNC;
 	aff->async.value0 = value0;
 	return aff;
 }
-
 
 aff_t * aff_sync_new(const purs_any_t * value0) {
 	aff_t * aff = purs_new(aff_t);
@@ -121,19 +148,6 @@ aff_t * aff_catch_new(const purs_any_t * value0) {
 	aff_->tag = AFF_TAG_CATCH;
 	aff_->catch.value0 = value0;
 	return aff_;
-}
-
-typedef struct cons_s cons_t;
-struct cons_s {
-	const step_t * head;
-	const cons_t * tail;
-};
-
-cons_t * cons_new(const step_t * head, const cons_t * tail) {
-	cons_t * cons = purs_new(cons_t);
-	cons->head = head;
-	cons->tail = tail;
-	return cons;
 }
 
 typedef enum {
@@ -168,16 +182,16 @@ struct fiber_s {
 	/* The current point of interest for the state machine branch. */
 	const step_t * step;
 	const step_t * failure;
-	const aff_t * interrupt;
+	const purs_any_t * interrupt;
 
 	/* Stack of continuations for the current fiber. */
 	const purs_any_t * bhead;
-	const cons_t * btail;
+	const cons_t * btail; // TODO: use aff_t under AFF_TAG_CONS?
 
 	/* Stack of attempts and finalizers for error recovery. Every `Cons` is
 	   also tagged with current `interrupt` state. We use this to track
 	   which items should be ignored or evaluated as a result of a kill. */
-	aff_t * attempts;
+	const aff_t * attempts;
 
 	/* A special state is needed for Bracket, because it cannot be
 	   killed. When we enter a bracket acquisition or finalizer, we
@@ -365,7 +379,33 @@ void fiber_run(fiber_t * fiber, uint32_t local_run_tick) {
 				   error handler later on in case of an
 				   exception. */
 				case AFF_TAG_CATCH: {
-					assert(0); // TODO
+					if (fiber->bhead == NULL) {
+						fiber->attempts =
+							aff_cons_new(
+								cons_new(fiber->step,
+									 cons_new(step_aff_new(fiber->attempts),
+										  NULL)),
+								fiber->interrupt);
+					} else {
+						fiber->attempts =
+							aff_cons_new(
+								fiber->step,
+								aff_cons_new(
+									cons_new(
+										aff_resume_new(fiber->bhead,
+											       fiber->btail)
+			/* new Aff(CONS, */
+			/* 	new Aff(RESUME, */
+			/* 		bhead, */
+			/* 		btail), */
+			/* 	attempts, */
+			/* 	interrupt), */
+			/* interrupt); */
+					}
+					fiber->bhead = NULL;
+					fiber->btail = NULL;
+					fiber->state = FIBER_STATE_CONTINUE;
+					fiber->step = step_val_new(fiber->step->aff->throw.value0);
 				}
 				}
 				break;
