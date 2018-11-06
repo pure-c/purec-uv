@@ -3,22 +3,41 @@
 #define TO_FOREIGN(V) purs_any_foreign_new(NULL, (void*) V)
 #define FROM_FOREIGN(V) purs_any_get_foreign(V)->data
 
+#define AFF_TAG_MAP(XX)\
+	XX(AFF_TAG_PURE,   0)\
+	XX(AFF_TAG_BIND,   1)\
+	XX(AFF_TAG_SYNC,   2)\
+	XX(AFF_TAG_ASYNC,  3)\
+	XX(AFF_TAG_THROW,  4)\
+	XX(AFF_TAG_CATCH,  5)\
+	XX(AFF_TAG_CONS,   6)\
+	XX(AFF_TAG_RESUME, 7)\
+
+#define TO_ENUM_MEMBER(N, V) N = V,
+#define TO_LOOKUP_MEMBER(N, V) # N,
+
 typedef enum {
-	AFF_TAG_PURE = 0,
-	AFF_TAG_BIND = 1,
-	AFF_TAG_SYNC = 2,
-	AFF_TAG_ASYNC = 3,
-	AFF_TAG_THROW = 4,
-	AFF_TAG_CATCH = 5,
+	AFF_TAG_MAP(TO_ENUM_MEMBER)
 } aff_tag_t;
+
+char* aff_tag_str_lookup[] = {
+	AFF_TAG_MAP(TO_LOOKUP_MEMBER)
+};
 
 typedef struct aff_s aff_t;
 typedef struct step_s step_t;
 
+#define STEP_TAG_MAP(XX)\
+	XX(STEP_TAG_AFF, 0)\
+	XX(STEP_TAG_VAL, 1)\
+
 typedef enum {
-	STEP_TAG_AFF = 0,
-	STEP_TAG_VAL = 1,
+	STEP_TAG_MAP(TO_ENUM_MEMBER)
 } step_tag_t;
+
+char* step_tag_str_lookup[] = {
+	STEP_TAG_MAP(TO_LOOKUP_MEMBER)
+};
 
 struct step_s {
 	step_tag_t tag;
@@ -42,6 +61,19 @@ const step_t * step_aff_new (const aff_t * aff) {
 	return step;
 }
 
+typedef struct cons_s cons_t;
+struct cons_s {
+	const step_t * head;
+	const cons_t * tail;
+};
+
+cons_t * cons_new(const step_t * head, const cons_t * tail) {
+	cons_t * cons = purs_new(cons_t);
+	cons->head = head;
+	cons->tail = tail;
+	return cons;
+}
+
 struct aff_s {
 	aff_tag_t tag;
 
@@ -63,7 +95,8 @@ struct aff_s {
 
 		/* Catch (Aff e a) (e -> Aff e a) */
 		struct {
-			const purs_any_t * value0;
+			const aff_t * value0;
+			const purs_any_t * value1;
 		} catch;
 
 		/* Throw e */
@@ -76,13 +109,37 @@ struct aff_s {
 			const aff_t * value0;
 			const purs_any_t * value1;
 		} bind;
+
+		/* ??? */
+		struct {
+			const aff_t * value0; /* ??? */
+			const aff_t * value1; /* ??? */
+			const purs_any_t * value2; /* interrupt */
+		} cons;
+
+		/* ??? */
+		struct {
+			const purs_any_t * value0; /* ??? */
+			const cons_t * value1; /* ??? */
+		} resume;
 	};
 };
 
-aff_t * aff_pure_new(const purs_any_t * a) {
+aff_t * aff_pure_new(const purs_any_t * value0) {
 	aff_t * aff = purs_new(aff_t);
 	aff->tag = AFF_TAG_PURE;
-	aff->pure.value0 = a;
+	aff->pure.value0 = value0;
+	return aff;
+}
+
+aff_t * aff_cons_new(const aff_t * value0,
+		     const aff_t * value1,
+		     const purs_any_t * value2) {
+	aff_t * aff = purs_new(aff_t);
+	aff->tag = AFF_TAG_CONS;
+	aff->cons.value0 = value0;
+	aff->cons.value1 = value1;
+	aff->cons.value2 = value2;
 	return aff;
 }
 
@@ -92,7 +149,6 @@ aff_t * aff_async_new(const purs_any_t * value0) {
 	aff->async.value0 = value0;
 	return aff;
 }
-
 
 aff_t * aff_sync_new(const purs_any_t * value0) {
 	aff_t * aff = purs_new(aff_t);
@@ -116,35 +172,39 @@ aff_t * aff_throw_new(const purs_any_t * value0) {
 	return aff_;
 }
 
-aff_t * aff_catch_new(const purs_any_t * value0) {
+aff_t * aff_resume_new(const purs_any_t * value0,
+		       const cons_t * value1) {
 	aff_t * aff_ = purs_new(aff_t);
-	aff_->tag = AFF_TAG_CATCH;
-	aff_->catch.value0 = value0;
+	aff_->tag = AFF_TAG_RESUME;
+	aff_->resume.value0 = value0;
+	aff_->resume.value1 = value1;
 	return aff_;
 }
 
-typedef struct cons_s cons_t;
-struct cons_s {
-	const step_t * head;
-	const cons_t * tail;
-};
-
-cons_t * cons_new(const step_t * head, const cons_t * tail) {
-	cons_t * cons = purs_new(cons_t);
-	cons->head = head;
-	cons->tail = tail;
-	return cons;
+aff_t * aff_catch_new(const aff_t * value0, const purs_any_t * value1) {
+	aff_t * aff_ = purs_new(aff_t);
+	aff_->tag = AFF_TAG_CATCH;
+	aff_->catch.value0 = value0;
+	aff_->catch.value1 = value1;
+	return aff_;
 }
 
+#define FIBER_STATE_MAP(XX)\
+	XX(FIBER_STATE_SUSPENDED,   0)\
+	XX(FIBER_STATE_CONTINUE,    1)\
+	XX(FIBER_STATE_STEP_BIND,   2)\
+	XX(FIBER_STATE_STEP_RESULT, 3)\
+	XX(FIBER_STATE_PENDING,     4)\
+	XX(FIBER_STATE_RETURN,      5)\
+	XX(FIBER_STATE_COMPLETED,   6)\
+
 typedef enum {
-	FIBER_STATE_SUSPENDED = 0,
-	FIBER_STATE_CONTINUE = 1,
-	FIBER_STATE_STEP_BIND = 2,
-	FIBER_STATE_STEP_RESULT = 3,
-	FIBER_STATE_PENDING = 4,
-	FIBER_STATE_RETURN = 5,
-	FIBER_STATE_COMPLETED = 6,
+	FIBER_STATE_MAP(TO_ENUM_MEMBER)
 } fiber_state;
+
+char* fiber_state_str_lookup[] = {
+	FIBER_STATE_MAP(TO_LOOKUP_MEMBER)
+};
 
 typedef struct utils_s utils_t;
 struct utils_s {
@@ -167,17 +227,17 @@ struct fiber_s {
 
 	/* The current point of interest for the state machine branch. */
 	const step_t * step;
-	const step_t * failure;
-	const aff_t * interrupt;
+	const purs_any_t * failure;
+	const purs_any_t * interrupt;
 
 	/* Stack of continuations for the current fiber. */
 	const purs_any_t * bhead;
-	const cons_t * btail;
+	const cons_t * btail; // TODO: use aff_t under AFF_TAG_CONS?
 
 	/* Stack of attempts and finalizers for error recovery. Every `Cons` is
 	   also tagged with current `interrupt` state. We use this to track
 	   which items should be ignored or evaluated as a result of a kill. */
-	aff_t * attempts;
+	const aff_t * attempts;
 
 	/* A special state is needed for Bracket, because it cannot be
 	   killed. When we enter a bracket acquisition or finalizer, we
@@ -258,7 +318,7 @@ PURS_FFI_FUNC_4(runAsync, _localRunTick, _fiber, result, _, {
 
 void fiber_run(fiber_t * fiber, uint32_t local_run_tick) {
 	while (1) {
-		printf("fiber->state: %i\n", fiber->state);
+		printf("fiber->state: %s\n", fiber_state_str_lookup[fiber->state]);
 		switch (fiber->state) {
 
 		case FIBER_STATE_STEP_BIND: {
@@ -291,7 +351,7 @@ void fiber_run(fiber_t * fiber, uint32_t local_run_tick) {
 			assert(fiber->step->val != NULL);
 			if (utils_is_left(fiber->utils, fiber->step->val)) {
 				fiber->state = FIBER_STATE_RETURN;
-				fiber->failure = fiber->step;
+				fiber->failure = fiber->step->val;
 				fiber->step = NULL;
 			} else if (fiber->bhead == NULL) {
 				fiber->state = FIBER_STATE_RETURN;
@@ -306,9 +366,12 @@ void fiber_run(fiber_t * fiber, uint32_t local_run_tick) {
 
 		case FIBER_STATE_CONTINUE: {
 			assert(fiber->step != NULL);
+			printf("fiber->step->tag: %s\n",
+			       step_tag_str_lookup[fiber->step->tag]);
 			switch (fiber->step->tag) {
 			case STEP_TAG_AFF: {
-				printf("fiber->step->aff->tag: %i\n", fiber->step->aff->tag);
+				printf("fiber->step->aff->tag: %s\n",
+				       aff_tag_str_lookup[fiber->step->aff->tag]);
 				switch (fiber->step->aff->tag) {
 				case AFF_TAG_BIND: {
 					if (fiber->bhead != NULL) {
@@ -354,10 +417,10 @@ void fiber_run(fiber_t * fiber, uint32_t local_run_tick) {
 				}
 				case AFF_TAG_THROW: {
 					fiber->state = FIBER_STATE_RETURN;
-					fiber->failure = step_val_new(
+					fiber->failure =
 						utils_to_left(
 							fiber->utils,
-							fiber->step->aff->throw.value0));
+							fiber->step->aff->throw.value0);
 					fiber->step = NULL;
 					break;
 				}
@@ -365,12 +428,33 @@ void fiber_run(fiber_t * fiber, uint32_t local_run_tick) {
 				   error handler later on in case of an
 				   exception. */
 				case AFF_TAG_CATCH: {
-					assert(0); // TODO
+					if (fiber->bhead == NULL) {
+						fiber->attempts =
+							aff_cons_new(
+								fiber->step->aff,
+								fiber->attempts,
+								fiber->interrupt);
+					} else {
+						fiber->attempts =
+							aff_cons_new(
+								fiber->step->aff,
+								aff_cons_new(
+									aff_resume_new(fiber->bhead, fiber->btail),
+									fiber->attempts,
+									fiber->interrupt),
+								fiber->interrupt);
+					}
+					fiber->bhead = NULL;
+					fiber->btail = NULL;
+					fiber->state = FIBER_STATE_CONTINUE;
+					fiber->step = step_aff_new(fiber->step->aff->catch.value0);
 				}
 				}
 				break;
 			}
 			case STEP_TAG_VAL: {
+				printf("fiber->step->val->tag: %s\n",
+				       purs_any_tag_str(fiber->step->val->tag));
 			}
 			}
 			break;
@@ -381,9 +465,48 @@ void fiber_run(fiber_t * fiber, uint32_t local_run_tick) {
 			break;
 
 		case FIBER_STATE_RETURN:
-			return;
+			fiber->bhead = NULL;
+			fiber->btail = NULL;
+
+			/* If the current stack has returned, and we have no
+			   other stacks to resume or finalizers to run, the
+			   fiber has halted and we can invoke all join
+			   callbacks. Otherwise we need to resume. */
+			if (fiber->attempts == NULL) {
+				fiber->state = FIBER_STATE_COMPLETED;
+				fiber->step =
+					fiber->interrupt != NULL
+					? step_val_new(fiber->interrupt)
+					: fiber->failure != NULL
+					? step_val_new(fiber->failure)
+					: fiber->step;
+			} else {
+				assert(fiber->attempts->tag == AFF_TAG_CONS);
+				const purs_any_t * tmp = fiber->attempts->cons.value2;
+				const aff_t * attempt = fiber->attempts->cons.value0;
+				fiber->attempts = fiber->attempts->cons.value1;
+				switch (attempt->tag) {
+				case AFF_TAG_CATCH:
+					if (fiber->interrupt && fiber->interrupt != tmp) {
+						fiber->state = FIBER_STATE_RETURN;
+					} else if (fiber->failure != NULL) {
+						fiber->state = FIBER_STATE_CONTINUE;
+						fiber->step = step_aff_new(
+							FROM_FOREIGN(purs_any_app(attempt->catch.value1,
+										  utils_from_left(fiber->utils,
+												  fiber->failure))));
+						fiber->failure = NULL;
+					}
+					break;
+				}
+			}
+			break;
 
 		case FIBER_STATE_PENDING:
+			return;
+
+		case FIBER_STATE_COMPLETED:
+			// TODO: evaluate joins
 			return;
 		}
 	}
@@ -412,6 +535,10 @@ PURS_FFI_FUNC_8(Effect_Aff_makeFiberImpl,
 	init_fiber(fiber, utils, FROM_FOREIGN(aff));
 
 	return TO_FOREIGN(fiber);
+});
+
+PURS_FFI_FUNC_2(Effect_Aff__catchError, aff, k, {
+	return TO_FOREIGN(aff_catch_new(FROM_FOREIGN(aff), k));
 });
 
 PURS_FFI_FUNC_1(Effect_Aff__throwError, e, {
