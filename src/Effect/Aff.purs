@@ -75,6 +75,10 @@ launchAff aff = do
   fiber <- makeFiber aff
   fiber <$ runFiber fiber
 
+-- | Forks an `Aff` from within a parent `Aff` context, returning the `Fiber`.
+forkAff :: ∀ e a. Aff e a -> Aff e (Fiber e a)
+forkAff = _fork true
+
 instance functorAff :: Functor (Aff e) where
   map = _map
 
@@ -98,6 +102,7 @@ instance monadThrowAff :: MonadThrow e (Aff e) where
 instance monadErrorAff :: MonadError e (Aff e) where
   catchError = _catchError
 
+foreign import _fork :: ∀ e a. Boolean -> Aff e a -> Aff e (Fiber e a)
 foreign import _throwError :: ∀ e a. e -> Aff e a
 foreign import _catchError :: ∀ e a. Aff e a -> (e -> Aff e a) -> Aff e a
 foreign import _liftEffect :: ∀ e a. Effect a -> Aff e a

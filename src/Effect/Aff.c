@@ -12,6 +12,7 @@
 	XX(AFF_TAG_CATCH,  5)\
 	XX(AFF_TAG_CONS,   6)\
 	XX(AFF_TAG_RESUME, 7)\
+	XX(AFF_TAG_FORK,   8)\
 
 #define TO_ENUM_MEMBER(N, V) N = V,
 #define TO_LOOKUP_MEMBER(N, V) # N,
@@ -104,11 +105,17 @@ struct aff_s {
 			const purs_any_t * value0;
 		} throw;
 
-		/* ∀ b. Bind  (Aff b) (b -> Aff a) */
+		/* ∀ b. Bind  (Aff e b) (b -> Aff e a) */
 		struct {
 			const aff_t * value0;
 			const purs_any_t * value1;
 		} bind;
+
+		/* ∀ b. Fork Boolean (Aff e b) */
+		struct {
+			int value0;
+			const aff_t * value1;
+		} fork;
 
 		/* ??? */
 		struct {
@@ -189,6 +196,15 @@ aff_t * aff_catch_new(const aff_t * value0, const purs_any_t * value1) {
 	return aff_;
 }
 
+aff_t * aff_fork_new(int value0, const aff_t * value1) {
+	assert(value1 != NULL);
+	aff_t * aff_ = purs_new(aff_t);
+	aff_->tag = AFF_TAG_FORK;
+	aff_->fork.value0 = value0;
+	aff_->fork.value1 = value1;
+	return aff_;
+}
+
 #define FIBER_STATE_MAP(XX)\
 	XX(FIBER_STATE_SUSPENDED,   0)\
 	XX(FIBER_STATE_CONTINUE,    1)\
@@ -248,17 +264,20 @@ struct fiber_s {
 	const utils_t * utils;
 };
 
-#define init_fiber(FIBER, UTILS, AFF)\
-	(FIBER)->run_tick = 0;\
-	(FIBER)->state = FIBER_STATE_SUSPENDED;\
-	(FIBER)->step = step_aff_new(AFF);\
-	(FIBER)->failure = NULL;\
-	(FIBER)->interrupt = NULL;\
-	(FIBER)->bhead = NULL;\
-	(FIBER)->btail = NULL;\
-	(FIBER)->attempts = NULL;\
-	(FIBER)->bracket_count = 0;\
-	(FIBER)->utils = UTILS;
+fiber_t * fiber_new(const utils_t * utils, const aff_t * aff) {
+	fiber_t * fiber = purs_new(fiber_t);
+	fiber->run_tick = 0;
+	fiber->state = FIBER_STATE_SUSPENDED;
+	fiber->step = step_aff_new(aff);
+	fiber->failure = NULL;
+	fiber->interrupt = NULL;
+	fiber->bhead = NULL;
+	fiber->btail = NULL;
+	fiber->attempts = NULL;
+	fiber->bracket_count = 0;
+	fiber->utils = utils;
+	return fiber;
+}
 
 int utils_is_right (const utils_t * utils, const purs_any_t * v) {
 	return purs_any_is_true(purs_any_app(utils->is_right, v));
@@ -337,9 +356,13 @@ void fiber_run(fiber_t * fiber, uint32_t local_run_tick) {
 				fiber->bhead = NULL;
 			} else {
 				assert(fiber->btail != NULL);
-				assert(fiber->btail->head->tag == STEP_TAG_AFF);
-				assert(fiber->btail->head->aff->tag == AFF_TAG_BIND);
-				fiber->bhead = fiber->btail->head->aff->bind.value1;
+				if (fiber->btail->head->tag == STEP_TAG_AFF) {
+					assert(fiber->btail->head->aff->tag == AFF_TAG_BIND);
+					fiber->bhead = fiber->btail->head->aff->bind.value1;
+				} else {
+					assert(fiber->btail->head->tag == STEP_TAG_VAL);
+					fiber->bhead = fiber->btail->head->val;
+				}
 				fiber->btail = fiber->btail->tail;
 			}
 			break;
@@ -370,6 +393,7 @@ void fiber_run(fiber_t * fiber, uint32_t local_run_tick) {
 			       step_tag_str_lookup[fiber->step->tag]);
 			switch (fiber->step->tag) {
 			case STEP_TAG_AFF: {
+				printf("fiber->step->aff: %p\n", fiber->step->aff);
 				printf("fiber->step->aff->tag: %s\n",
 				       aff_tag_str_lookup[fiber->step->aff->tag]);
 				switch (fiber->step->aff->tag) {
@@ -448,6 +472,25 @@ void fiber_run(fiber_t * fiber, uint32_t local_run_tick) {
 					fiber->btail = NULL;
 					fiber->state = FIBER_STATE_CONTINUE;
 					fiber->step = step_aff_new(fiber->step->aff->catch.value0);
+					break;
+				}
+
+				case AFF_TAG_FORK: {
+					fiber->state = FIBER_STATE_STEP_RESULT;
+					fiber_t * tmp =
+						fiber_new(fiber->utils,
+							  fiber->step->aff->fork.value1);
+					if (0 /* supervisor */) {
+						/* TODO: add support for supervisors */
+					}
+					if (fiber->step->aff->fork.value0) {
+						fiber_run(tmp, 0);
+					}
+					fiber->step =
+						step_val_new(
+							utils_to_right(fiber->utils,
+								       TO_FOREIGN(tmp)));
+					break;
 				}
 				}
 				break;
@@ -531,13 +574,12 @@ PURS_FFI_FUNC_8(Effect_Aff_makeFiberImpl,
 	utils->Left = Left;
 	utils->Right = Right;
 
-	fiber_t *fiber = purs_new(fiber_t);
-	init_fiber(fiber, utils, FROM_FOREIGN(aff));
-
-	return TO_FOREIGN(fiber);
+	return TO_FOREIGN(fiber_new(utils, FROM_FOREIGN(aff)));
 });
 
 PURS_FFI_FUNC_2(Effect_Aff__catchError, aff, k, {
+		printf("%p\n", aff); //fiber->step->aff->catch.value0);
+		printf("x%p\n", FROM_FOREIGN(aff)); //fiber->step->aff->catch.value0);
 	return TO_FOREIGN(aff_catch_new(FROM_FOREIGN(aff), k));
 });
 
@@ -583,4 +625,10 @@ PURS_FFI_FUNC_2(Effect_Aff__bind, aff, k, {
 
 PURS_FFI_FUNC_1(Effect_Aff__liftEffect, effect, {
 	return TO_FOREIGN(aff_sync_new(effect));
+});
+
+PURS_FFI_FUNC_2(Effect_Aff__fork, immediate, aff, {
+	return TO_FOREIGN(
+		aff_fork_new(purs_any_get_int(immediate),
+			     FROM_FOREIGN(aff)));
 });
