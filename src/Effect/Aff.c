@@ -232,6 +232,11 @@ struct utils_s {
 	const purs_any_t * Right;
 };
 
+typedef struct join_s join_t;
+struct join_s {
+	const purs_any_t * callback;
+};
+
 typedef struct fiber_s fiber_t;
 struct fiber_s {
 	/* Monotonically increasing tick, increased on each asynchronous turn.
@@ -334,6 +339,72 @@ PURS_FFI_FUNC_4(runAsync, _localRunTick, _fiber, result, _, {
 
 	return NULL;
 });
+
+PURS_FFI_FUNC_1(noop_canceler, super, {
+	return NULL;
+});
+
+PURS_FFI_FUNC_1(join_canceler, _, {
+	int join_id = purs_any_get_int(PURS_FFI_FUNC_CONTEXT);
+	return NULL;
+});
+
+PURS_FFI_FUNC_2(onComplete, _join, _, {
+	join_t * join = FROM_FOREIGN(_join);
+	if (join->fiber->state == FIBER_STATE_COMPLETED) {
+		return noop;
+	} else {
+		return NULL; // TODO
+		/* int join_id = vec_len(join->fiber->joins); */
+		/* return purs_any_cont_new(purs_any_int_new()); */
+	}
+});
+
+/* void on_complete(fiber_t * fiber, join_t * join) { */
+/* } */
+    /* function onComplete(join) { */
+    /*   return function () { */
+    /*     if (status === COMPLETED) { */
+    /*       rethrow = rethrow && join.rethrow; */
+    /*       join.handler(step)(); */
+    /*       return function () {}; */
+    /*     } */
+
+    /*     var jid    = joinId++; */
+    /*     joins      = joins || {}; */
+    /*     joins[jid] = join; */
+
+    /*     return function() { */
+    /*       if (joins !== null) { */
+    /*         delete joins[jid]; */
+    /*       } */
+    /*     }; */
+    /*   }; */
+    /* } */
+
+
+/* PURS_FFI_FUNC_3(fiberJoin, _fiber, cb, _, { */
+
+/* 	fiber_t * fiber = FROM_FOREIGN(_fiber); */
+/* 	if (fiber->state == FIBER_STATE_SUSPENDED) { */
+/* 		fiber_run(fiber, fiber->run_tick); */
+/* 	} */
+/* 	return canceler; */
+/* }); */
+
+    /* function join(cb) { */
+    /*   return function () { */
+    /*     var canceler = onComplete({ */
+    /*       rethrow: false, */
+    /*       handler: cb */
+    /*     })(); */
+    /*     if (status === SUSPENDED) { */
+    /*       run(runTick); */
+    /*     } */
+    /*     return canceler; */
+    /*   }; */
+    /* } */
+
 
 void fiber_run(fiber_t * fiber, uint32_t local_run_tick) {
 	while (1) {

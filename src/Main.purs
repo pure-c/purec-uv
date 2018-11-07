@@ -3,7 +3,7 @@ module Main where
 import Effect.Aff
 import Prelude
 
-import Control.Monad.Error.Class (throwError)
+import Control.Monad.Error.Class (catchError, throwError)
 import Control.Monad.Except (ExceptT(..), runExceptT)
 import Control.Monad.Trans.Class (lift)
 import Data.Either (Either(..))
@@ -53,13 +53,34 @@ main = logResult =<< runExceptT do
       serverAddr =
         UV.ip4Addr "0.0.0.0" 4321
 
-    void $ throwError unit
+    -- liftEffect $ Console.log "throwing..."
+    -- msg1 <- (throwError unit) `catchError` \e -> do
+    --   liftEffect $ Console.log "catching..."
+    --   -- pure "recovered"
 
-    msg <- makeAff \cb -> do
-      cb (Right "Hello from Aff")
-      pure (unsafeCoerce unit)
+    -- -- liftEffect $ Console.log msg1
 
-    liftEffect $ Console.log msg
+    let
+      x :: Aff _ _
+      x =
+        makeAff \cb -> do
+          cb (Right "Hello from Aff")
+          pure (unsafeCoerce unit)
+      y :: Aff _ _
+      y =
+        throwError unit
+
+    -- void $ forkAff $
+    --   pure unit
+
+    void $ forkAff $
+      y `catchError` \e ->
+        pure unit
+
+      -- pure "" -- unit
+    -- x >>= \msg -> liftEffect $ Console.log msg
+    -- map identity $
+    --   x >>= \msg -> pure unit
 
   testTcp :: _ -> UV.Handler _ Unit
   testTcp loop = do
