@@ -3,10 +3,10 @@ module Main where
 import Effect.Aff
 import Prelude
 
-import Control.Monad.Error.Class (throwError)
-import Control.Monad.Except (ExceptT(..), runExceptT)
+import Control.Monad.Error.Class (catchError, throwError)
+import Control.Monad.Except (ExceptT(..), mapExceptT, runExceptT, withExceptT)
 import Control.Monad.Trans.Class (lift)
-import Data.Either (Either(..))
+import Data.Either (Either(..), either)
 import Data.Maybe (Maybe(..))
 import Data.Symbol (reflectSymbol)
 import Data.Traversable (traverse)
@@ -22,50 +22,34 @@ main :: Effect Unit
 main = logResult =<< runExceptT do
   loop <- lift UV.defaultLoop
 
-  lift $ testAff
+  lift $ testAff loop
   -- testUdp loop
   -- testTcp loop
 
   UV.run loop UV._RunDefault
 
   where
-  logResult (Left ve) =
-    let
-      errLabel = rowLabel ve
-      errCode = UV.errCode ve
-    in
-      Console.log $
-        "Failure(" <> errLabel <> "): " <> renderErrCode errCode
-  logResult (Right _) =
-    Console.log "Done!"
-
-  renderErrCode errCode =
-    UV.strerror errCode <> " (" <> show errCode <> ")"
-
-  rowLabel v =
-    V.unvariant v # \(V.Unvariant k) ->
-      k \sym _ ->
-        reflectSymbol sym
-
-  testAff :: Effect Unit
-  testAff = void $ launchAff do
+  testAff :: _ -> Effect Unit
+  testAff loop = void $ launchAff do
     let
       serverAddr =
-        UV.ip4Addr "0.0.0.0" 4321
-
-    void $ throwError unit
-
-    msg <- makeAff \cb -> do
-      cb (Right "Hello from Aff")
-      pure (unsafeCoerce unit)
-
-    liftEffect $ Console.log msg
+        UV.ip4Addr "0.0.0.0" 80
+      go =
+        either throwError pure =<< do
+          runExceptT $
+            mapExceptT liftEffect do
+              serverH <- UV.tcpNew loop
+              UV.tcpBind serverAddr [] serverH
+    go `catchError` \ve ->
+      liftEffect $
+        Console.log $
+          rowLabel ve <> ": " <> UV.strerror (UV.errCode ve)
 
   testTcp :: _ -> UV.Handler _ Unit
   testTcp loop = do
     let
       serverAddr =
-        UV.ip4Addr "0.0.0.0" 4321
+        UV.ip4Addr "0.0.0.0" 80 -- 4321
 
     serverH <- UV.tcpNew loop
     UV.tcpBind serverAddr [] serverH
@@ -122,3 +106,21 @@ main = logResult =<< runExceptT do
         Left errCode ->
           Console.log $ renderErrCode errCode
       ) sendH
+
+  logResult (Left ve) =
+    let
+      errLabel = rowLabel ve
+      errCode = UV.errCode ve
+    in
+      Console.log $
+        "Failure(" <> errLabel <> "): " <> renderErrCode errCode
+  logResult (Right _) =
+    Console.log "Done!"
+
+  renderErrCode errCode =
+    UV.strerror errCode <> " (" <> show errCode <> ")"
+
+  rowLabel v =
+    V.unvariant v # \(V.Unvariant k) ->
+      k \sym _ ->
+        reflectSymbol sym
