@@ -5,16 +5,39 @@ import Prelude
 import Control.Monad.Error.Class (class MonadError, class MonadThrow)
 import Data.Either (Either(..))
 import Effect (Effect)
-import Effect.Class (class MonadEffect)
+import Effect.Class (class MonadEffect, liftEffect)
 import Partial.Unsafe (unsafeCrashWith)
 
 foreign import data Aff :: Type -> Type -> Type
+
 foreign import data Fiber :: Type -> Type -> Type
+
+-- | Blocks until the fiber completes, yielding the result. If the fiber
+-- | throws an exception, it is rethrown in the current fiber.
+joinFiber :: ∀ e. Fiber e ~> Aff e
+joinFiber fiber =
+  makeAff \k ->
+    effectCanceler <$>
+      _joinFiber fiber k
+
+foreign import _joinFiber
+  :: ∀ e a
+   . Fiber e a
+  -> (Either e a -> Effect Unit)
+  -> Effect (Effect Unit)
 
 -- | A cancellation effect for actions run via `makeAff`. If a `Fiber` is
 -- | killed, and an async action is pending, the canceler will be called to
 -- | clean it up.
 newtype Canceler e = Canceler (e -> Aff e Unit)
+
+-- | A canceler which does not cancel anything.
+nonCanceler :: ∀ e. Canceler e
+nonCanceler = Canceler (const (pure unit))
+
+-- | A canceler from an Effect action.
+effectCanceler :: ∀ e. Effect Unit -> Canceler e
+effectCanceler = Canceler <<< const <<< liftEffect
 
 -- | Constructs an `Aff` from low-level `Effect` effects using a callback. A
 -- | `Canceler` effect should be returned to cancel the pending action. The

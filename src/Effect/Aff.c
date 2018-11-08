@@ -3,6 +3,9 @@
 #define TO_FOREIGN(V) purs_any_foreign_new(NULL, (void*) V)
 #define FROM_FOREIGN(V) purs_any_get_foreign(V)->data
 
+#define DO_RETHROW   1
+#define DONT_RETHROW 0
+
 #define AFF_TAG_MAP(XX)\
 	XX(AFF_TAG_PURE,   0)\
 	XX(AFF_TAG_BIND,   1)\
@@ -233,6 +236,30 @@ struct utils_s {
 };
 
 typedef struct fiber_s fiber_t;
+
+typedef struct join_s join_t;
+struct join_s {
+	int rethrow;
+	fiber_t * fiber;
+	const purs_any_t * callback;
+};
+
+static inline join_t * join_new(fiber_t * fiber,
+				const purs_any_t * callback,
+				int rethrow) {
+	join_t * join = purs_new(join_t);
+	join->fiber = fiber;
+	join->callback = callback;
+	join->rethrow = rethrow;
+	return join;
+}
+
+typedef struct joins_table_s {
+	int id;
+	join_t join;
+	UT_hash_handle hh;
+} join_table_t;
+
 struct fiber_s {
 	/* Monotonically increasing tick, increased on each asynchronous turn.
 	 */
@@ -260,8 +287,14 @@ struct fiber_s {
 	   increment the counter, and then decrement once complete. */
 	uint32_t bracket_count;
 
-	/* anicillary utilities */
+	/* Each join gets a new id so they can be revoked. */
+	join_table_t * joins;
+	int join_id;
+	int rethrow;
+
+	/* ancillary utilities */
 	const utils_t * utils;
+
 };
 
 fiber_t * fiber_new(const utils_t * utils, const aff_t * aff) {
@@ -275,6 +308,9 @@ fiber_t * fiber_new(const utils_t * utils, const aff_t * aff) {
 	fiber->btail = NULL;
 	fiber->attempts = NULL;
 	fiber->bracket_count = 0;
+	fiber->joins = NULL;
+	fiber->join_id = 0;
+	fiber->rethrow = 1;
 	fiber->utils = utils;
 	return fiber;
 }
@@ -333,6 +369,51 @@ PURS_FFI_FUNC_4(runAsync, _localRunTick, _fiber, result, _, {
 	fiber_run(fiber, fiber->run_tick);
 
 	return NULL;
+});
+
+PURS_FFI_FUNC_1(noop_canceler, _, {
+	return NULL;
+});
+
+PURS_FFI_FUNC_2(join_canceler, _entry, _, {
+	join_table_t * entry = FROM_FOREIGN(_entry);
+	HASH_DEL(entry->join.fiber->joins, entry);
+	return NULL;
+});
+
+PURS_FFI_FUNC_2(onComplete, _join, _, {
+	const join_t * join = FROM_FOREIGN(_join);
+	printf("onComplete: join->fiber->state: %s\n",
+	       fiber_state_str_lookup[join->fiber->state]);
+	if (join->fiber->state == FIBER_STATE_COMPLETED) {
+		join->fiber->rethrow = join->fiber->rethrow && join->rethrow;
+		assert(join->fiber->step->tag == STEP_TAG_VAL);
+		purs_any_app(purs_any_app(join->callback,
+					  join->fiber->step->val), NULL);
+		return noop_canceler;
+	} else {
+		join_table_t * entry = purs_new(join_table_t);
+		entry->id = join->fiber->join_id++;
+		entry->join = *join;
+		HASH_ADD_INT(join->fiber->joins, id, entry);
+		return purs_any_app(join_canceler, TO_FOREIGN(entry));
+	}
+});
+
+PURS_FFI_FUNC_3(Effect_Aff__joinFiber, _fiber, cb, _, {
+	fiber_t * fiber = FROM_FOREIGN(_fiber);
+	printf("joinFiber: fiber->state: %s\n", fiber_state_str_lookup[fiber->state]);
+	const purs_any_t * canceler =
+		purs_any_app(
+			purs_any_app(onComplete,
+				     TO_FOREIGN(join_new(fiber,
+							 cb,
+							 DONT_RETHROW))),
+			NULL);
+	if (fiber->state == FIBER_STATE_SUSPENDED) {
+		fiber_run(fiber, fiber->run_tick);
+	}
+	return canceler;
 });
 
 void fiber_run(fiber_t * fiber, uint32_t local_run_tick) {
