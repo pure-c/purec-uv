@@ -50,6 +50,9 @@ foreign import makeAff
 
 foreign import runFiber :: ∀ e a. Fiber e a -> Effect Unit
 
+type SetTimeoutFn =
+  Int -> Effect Unit -> Effect Unit
+
 foreign import makeFiberImpl
   :: ∀ e a
    . (∀ u v. Either u v -> Boolean)
@@ -58,10 +61,11 @@ foreign import makeFiberImpl
   -> (∀ u v. Either u v -> v)
   -> (∀ u v. u -> Either u v)
   -> (∀ u v. v -> Either u v)
+  -> SetTimeoutFn
   -> Aff e a
   -> Effect (Fiber e a)
 
-makeFiber :: ∀ e a. Aff e a -> Effect (Fiber e a)
+makeFiber :: ∀ e a. SetTimeoutFn -> Aff e a -> Effect (Fiber e a)
 makeFiber =
   makeFiberImpl
     isLeft
@@ -93,9 +97,13 @@ makeFiber =
     Left  _ -> unsafeCrashWith "unsafeFromRight: Left"
 
 -- | Forks an `Aff` from an `Effect` context, returning the `Fiber`.
-launchAff :: ∀ e a. Aff e a -> Effect (Fiber e a)
-launchAff aff = do
-  fiber <- makeFiber aff
+launchAff
+  :: ∀ e a
+   . SetTimeoutFn
+  -> Aff e a
+  -> Effect (Fiber e a)
+launchAff setTimeout aff = do
+  fiber <- makeFiber setTimeout aff
   fiber <$ runFiber fiber
 
 -- | Forks an `Aff` from within a parent `Aff` context, returning the `Fiber`.

@@ -1,22 +1,55 @@
 module Main where
 
-import Effect.Aff
 import Prelude
 
 import Control.Monad.Error.Class (catchError, throwError)
-import Control.Monad.Except (ExceptT(..), mapExceptT, runExceptT, withExceptT)
+import Control.Monad.Except (mapExceptT, runExceptT)
 import Control.Monad.Trans.Class (lift)
-import Data.Either (Either(..), either)
+import Data.Either (Either(..), either, fromRight)
 import Data.Maybe (Maybe(..))
 import Data.Symbol (reflectSymbol)
 import Data.Traversable (traverse)
 import Data.Variant as V
 import Effect (Effect)
+import Effect.Aff (Aff, effectCanceler, launchAff, makeAff)
 import Effect.Class (liftEffect)
 import Effect.Console as Console
+import Partial.Unsafe (unsafePartial)
 import UV as UV
 import UV.Buffer as UV.Buffer
-import Unsafe.Coerce (unsafeCoerce)
+
+setTimeout_
+  :: UV.Loop
+  -> Int
+  -> Effect Unit
+  -> Effect Unit
+setTimeout_ loop timeout cb =
+  unsafePartial $ fromRight <$> do
+    runExceptT $
+      void $
+        setTimeout loop timeout cb
+
+setTimeout
+  :: UV.Loop
+  -> Int
+  -> Effect Unit
+  -> UV.Handler _ UV.TimerHandle
+setTimeout loop timeout cb = do
+  timer <- UV.timerNew loop
+  timer <$ UV.timerStart (UV.Timeout timeout) (UV.Repeat 0) cb timer
+
+delay :: UV.Loop -> Int -> Aff UV.LabeledError Unit
+delay loop ms =
+  makeAff \k -> do
+    result <- runExceptT $
+      setTimeout loop ms $
+        k $ Right unit
+    pure $
+      effectCanceler $ case result of
+        Right timer ->
+          void $ runExceptT $ UV.timerStop timer
+        Left e ->
+          k $ Left e
 
 main :: Effect Unit
 main = logResult =<< runExceptT do
@@ -29,8 +62,8 @@ main = logResult =<< runExceptT do
   UV.run loop UV._RunDefault
 
   where
-  testAff :: _ -> Effect Unit
-  testAff loop = void $ launchAff do
+  testAff :: UV.Loop -> Effect Unit
+  testAff loop = void $ launchAff (setTimeout_ loop) do
     let
       serverAddr =
         UV.ip4Addr "0.0.0.0" 80
@@ -40,6 +73,11 @@ main = logResult =<< runExceptT do
             mapExceptT liftEffect do
               serverH <- UV.tcpNew loop
               UV.tcpBind serverAddr [] serverH
+
+    liftEffect $ Console.log "wait..."
+    delay loop 1000
+    liftEffect $ Console.log "waited enough!"
+
     go `catchError` \ve ->
       liftEffect $
         Console.log $
@@ -88,7 +126,7 @@ main = logResult =<< runExceptT do
 
     pure unit -- To be continued ...
 
-  testUdp :: _ -> UV.Handler _ Unit
+  testUdp :: UV.Loop -> UV.Handler _ Unit
   testUdp loop = do
     recvH <- UV.udpNew loop
     UV.udpBind (UV.ip4Addr "0.0.0.0" 1234) [ UV._UdpReuseAddr ] recvH
