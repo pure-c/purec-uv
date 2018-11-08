@@ -58,6 +58,7 @@ foreign import makeFiberImpl
   -> (∀ u v. Either u v -> v)
   -> (∀ u v. u -> Either u v)
   -> (∀ u v. v -> Either u v)
+  -> (Int -> Effect Unit) -- set timeout
   -> Aff e a
   -> Effect (Fiber e a)
 

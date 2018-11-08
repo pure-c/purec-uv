@@ -233,6 +233,7 @@ struct utils_s {
 	const purs_any_t * from_right;
 	const purs_any_t * Left;
 	const purs_any_t * Right;
+	const purs_any_t * set_timeout;
 };
 
 typedef struct fiber_s fiber_t;
@@ -629,20 +630,47 @@ void fiber_run(fiber_t * fiber, uint32_t local_run_tick) {
 		case FIBER_STATE_PENDING:
 			return;
 
-		case FIBER_STATE_COMPLETED:
-			// TODO: evaluate joins
+		case FIBER_STATE_COMPLETED: {
+			join_t * join, * tmp;
+			assert(fiber->step != NULL);
+			assert(fiber->step->tag == STEP_TAG_VAL);
+			HASH_ITER(hh, fiber->joins, join, tmp) {
+				fiber->rethrow = fiber->rethrow && join->rethrow;
+				purs_any_app(purs_any_app(join->callback, fiber->step->val), NULL);
+			}
+			fiber->joins = NULL;
+
+			/* If we have an interrupt and a fail, then the thread
+			   threw while running finalizers. This is irrecoverable
+			   */
+			assert(fiber->interrupt == NULL || fiber->fail == NULL);
+
+			/* If we have an unhandled error, and no other fiber has
+			   joined, the error is effectively irrecoverable.
+			   TODO: setTimeout and re-check 'fiber->rethrow':
+			     setTimeout(function () {
+			       // Guard on reathrow because a completely synchronous fiber can
+			       // still have an observer which was added after-the-fact.
+			       if (rethrow) {
+			         throw util.fromLeft(step);
+			       }
+			     })
+			*/
+
 			return;
+		}
 		}
 	}
 }
 
-PURS_FFI_FUNC_8(Effect_Aff_makeFiberImpl,
+PURS_FFI_FUNC_9(Effect_Aff_makeFiberImpl,
 		is_left,
 		is_right,
 		from_left,
 		from_right,
 		Left,
 		Right,
+		set_timeout,
 		aff,
 		_, {
 
@@ -654,6 +682,7 @@ PURS_FFI_FUNC_8(Effect_Aff_makeFiberImpl,
 	utils->from_right = from_right;
 	utils->Left = Left;
 	utils->Right = Right;
+	utils->set_timeout = set_timeout;
 
 	return TO_FOREIGN(fiber_new(utils, FROM_FOREIGN(aff)));
 });
