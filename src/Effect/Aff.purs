@@ -53,6 +53,9 @@ foreign import runFiber :: ∀ e a. Fiber e a -> Effect Unit
 type SetTimeoutFn =
   Int -> Effect Unit -> Effect Unit
 
+type UncaughtErrorHandler e =
+   e -> Effect Unit
+
 foreign import makeFiberImpl
   :: ∀ e a
    . (∀ u v. Either u v -> Boolean)
@@ -62,10 +65,16 @@ foreign import makeFiberImpl
   -> (∀ u v. u -> Either u v)
   -> (∀ u v. v -> Either u v)
   -> SetTimeoutFn
+  -> UncaughtErrorHandler e
   -> Aff e a
   -> Effect (Fiber e a)
 
-makeFiber :: ∀ e a. SetTimeoutFn -> Aff e a -> Effect (Fiber e a)
+makeFiber
+  :: ∀ e a
+   . SetTimeoutFn
+  -> UncaughtErrorHandler e
+  -> Aff e a
+  -> Effect (Fiber e a)
 makeFiber =
   makeFiberImpl
     isLeft
@@ -100,10 +109,11 @@ makeFiber =
 launchAff
   :: ∀ e a
    . SetTimeoutFn
+  -> UncaughtErrorHandler e
   -> Aff e a
   -> Effect (Fiber e a)
-launchAff setTimeout aff = do
-  fiber <- makeFiber setTimeout aff
+launchAff setTimeout onUncaughtError aff = do
+  fiber <- makeFiber setTimeout onUncaughtError aff
   fiber <$ runFiber fiber
 
 -- | Forks an `Aff` from within a parent `Aff` context, returning the `Fiber`.

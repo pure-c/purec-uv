@@ -51,6 +51,16 @@ delay loop ms =
         Left e ->
           k $ Left e
 
+launchAffUV
+  :: ∀ e a
+   . UV.Loop
+  -> Aff e a
+  -> Effect (Fiber e a)
+launchAffUV loop =
+  launchAff
+    (setTimeout_ loop)
+    (\_ -> pure $ unsafeCrashWith "TODO: render and print error")
+
 main :: Effect Unit
 main = logResult =<< runExceptT do
   loop <- lift UV.defaultLoop

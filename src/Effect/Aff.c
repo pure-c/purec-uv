@@ -233,7 +233,6 @@ struct utils_s {
 	const purs_any_t * from_right;
 	const purs_any_t * Left;
 	const purs_any_t * Right;
-	const purs_any_t * set_timeout;
 };
 
 typedef struct fiber_s fiber_t;
@@ -269,6 +268,12 @@ struct fiber_s {
 	/* The current branch of the state machine. */
 	fiber_state state;
 
+	/* action to take for errors that were not caught */
+	const purs_any_t * on_uncaught_error;
+
+	/* how to break current execution context */
+	const purs_any_t * set_timeout;
+
 	/* The current point of interest for the state machine branch. */
 	const step_t * step;
 	const purs_any_t * failure;
@@ -298,7 +303,10 @@ struct fiber_s {
 
 };
 
-fiber_t * fiber_new(const utils_t * utils, const aff_t * aff) {
+fiber_t * fiber_new(const utils_t * utils,
+		    const purs_any_t * set_timeout,
+		    const purs_any_t * on_uncaught_error,
+		    const aff_t * aff) {
 	fiber_t * fiber = purs_new(fiber_t);
 	fiber->run_tick = 0;
 	fiber->state = FIBER_STATE_SUSPENDED;
@@ -312,6 +320,8 @@ fiber_t * fiber_new(const utils_t * utils, const aff_t * aff) {
 	fiber->joins = NULL;
 	fiber->join_id = 0;
 	fiber->rethrow = 1;
+	fiber->set_timeout = set_timeout;
+	fiber->on_uncaught_error = on_uncaught_error;
 	fiber->utils = utils;
 	return fiber;
 }
@@ -415,6 +425,20 @@ PURS_FFI_FUNC_3(Effect_Aff__joinFiber, _fiber, cb, _, {
 		fiber_run(fiber, fiber->run_tick);
 	}
 	return canceler;
+});
+
+PURS_FFI_FUNC_4(onCompletedCheckRethrow, _fiber, _error, _reCheck, _, {
+	fiber_t * fiber = FROM_FOREIGN(_fiber);
+	if (purs_any_get_int(_reCheck)) {
+		if (fiber->rethrow) {
+			purs_any_app(purs_any_app(fiber->on_uncaught_error, _error),
+				     NULL);
+		}
+	} else {
+		purs_any_app(purs_any_app(fiber->on_uncaught_error, _error),
+			     NULL);
+	}
+	return NULL;
 });
 
 void fiber_run(fiber_t * fiber, uint32_t local_run_tick) {
@@ -561,6 +585,8 @@ void fiber_run(fiber_t * fiber, uint32_t local_run_tick) {
 					fiber->state = FIBER_STATE_STEP_RESULT;
 					fiber_t * tmp =
 						fiber_new(fiber->utils,
+							  fiber->set_timeout,
+							  fiber->on_uncaught_error,
 							  fiber->step->aff->fork.value1);
 					if (0 /* supervisor */) {
 						/* TODO: add support for supervisors */
@@ -631,40 +657,76 @@ void fiber_run(fiber_t * fiber, uint32_t local_run_tick) {
 			return;
 
 		case FIBER_STATE_COMPLETED: {
+			/* Inovke join handlers */
 			join_table_t * entry, * tmp;
 			assert(fiber->step != NULL);
 			assert(fiber->step->tag == STEP_TAG_VAL);
 			HASH_ITER(hh, fiber->joins, entry, tmp) {
 				fiber->rethrow = fiber->rethrow && entry->join.rethrow;
-				purs_any_app(purs_any_app(entry->join.callback, fiber->step->val), NULL);
+				purs_any_app(purs_any_app(entry->join.callback,
+							  fiber->step->val),
+					     NULL);
 			}
 			fiber->joins = NULL;
 
 			/* If we have an interrupt and a fail, then the thread
 			   threw while running finalizers. This is irrecoverable
 			   */
-			assert(fiber->interrupt == NULL ||
-			       fiber->failure == NULL);
+			printf("interrupt:%p/failure:%p/rethrow:%i/is-left:%i\n",
+			       fiber->interrupt,
+			       fiber->failure,
+			       fiber->rethrow,
+			       utils_is_left(fiber->utils, fiber->step->val));
 
-			/* If we have an unhandled error, and no other fiber has
-			   joined, the error is effectively irrecoverable.
-			   TODO: setTimeout and re-check 'fiber->rethrow':
-			     setTimeout(function () {
-			       // Guard on reathrow because a completely synchronous fiber can
-			       // still have an observer which was added after-the-fact.
-			       if (rethrow) {
-			         throw util.fromLeft(step);
-			       }
-			     })
-			*/
-
+			if (fiber->interrupt != NULL && fiber->failure != NULL) {
+				purs_any_app(
+					purs_any_app(
+						purs_any_app(
+							fiber->set_timeout,
+							purs_any_int_new(0)
+						),
+						purs_any_app(
+							purs_any_app(
+								purs_any_app(
+									onCompletedCheckRethrow,
+									TO_FOREIGN(fiber)
+								),
+								utils_from_left(fiber->utils, fiber->failure)
+							),
+							purs_any_false
+						)
+					),
+					NULL
+				);
+			} else if (utils_is_left(fiber->utils,
+						 fiber->step->val) && fiber->rethrow) {
+				purs_any_app(
+					purs_any_app(
+						purs_any_app(
+							fiber->set_timeout,
+							purs_any_int_new(0)
+						),
+						purs_any_app(
+							purs_any_app(
+								purs_any_app(
+									onCompletedCheckRethrow,
+									TO_FOREIGN(fiber)
+								),
+								utils_from_left(fiber->utils, fiber->step->val)
+							),
+							purs_any_true
+						)
+					),
+					NULL
+				);
+			}
 			return;
 		}
 		}
 	}
 }
 
-PURS_FFI_FUNC_9(Effect_Aff_makeFiberImpl,
+PURS_FFI_FUNC_10(Effect_Aff_makeFiberImpl,
 		is_left,
 		is_right,
 		from_left,
@@ -672,6 +734,7 @@ PURS_FFI_FUNC_9(Effect_Aff_makeFiberImpl,
 		Left,
 		Right,
 		set_timeout,
+		on_uncaught_error,
 		aff,
 		_, {
 
@@ -683,9 +746,11 @@ PURS_FFI_FUNC_9(Effect_Aff_makeFiberImpl,
 	utils->from_right = from_right;
 	utils->Left = Left;
 	utils->Right = Right;
-	utils->set_timeout = set_timeout;
 
-	return TO_FOREIGN(fiber_new(utils, FROM_FOREIGN(aff)));
+	return TO_FOREIGN(fiber_new(utils,
+				    set_timeout,
+				    on_uncaught_error,
+				    FROM_FOREIGN(aff)));
 });
 
 PURS_FFI_FUNC_2(Effect_Aff__catchError, aff, k, {
