@@ -1,5 +1,6 @@
 module Main where
 
+import Effect.Aff
 import Prelude
 
 import Control.Monad.Error.Class (catchError, throwError)
@@ -11,10 +12,9 @@ import Data.Symbol (reflectSymbol)
 import Data.Traversable (traverse)
 import Data.Variant as V
 import Effect (Effect)
-import Effect.Aff (Aff, effectCanceler, launchAff, makeAff)
 import Effect.Class (liftEffect)
 import Effect.Console as Console
-import Partial.Unsafe (unsafePartial)
+import Partial.Unsafe (unsafeCrashWith, unsafePartial)
 import UV as UV
 import UV.Buffer as UV.Buffer
 
@@ -63,17 +63,17 @@ launchAffUV loop =
 
 main :: Effect Unit
 main = logResult =<< runExceptT do
-  loop <- lift UV.defaultLoop
+  loop <- lift UV.newLoop
 
   lift $ testAff loop
   -- testUdp loop
   -- testTcp loop
 
-  UV.run loop UV._RunDefault
+  UV.run UV._RunDefault loop
 
   where
   testAff :: UV.Loop -> Effect Unit
-  testAff loop = void $ launchAff (setTimeout_ loop) do
+  testAff loop = void $ launchAffUV loop do
     let
       serverAddr =
         UV.ip4Addr "0.0.0.0" 80

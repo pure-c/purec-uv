@@ -1,7 +1,17 @@
 module UV.Internal where
 
+import Data.Either (Either(..))
+import Data.Maybe (Maybe(..))
 import Data.Unit (Unit)
 
--- XXX this is required in order for the FFI file to be copied over which
---     contains ancillary macros and functions used by other modules.
-foreign import dummy :: Unit
+foreign import data Utils :: Type
+
+utils :: Utils
+utils = mkUtils Left Right Nothing Just
+
+foreign import mkUtils
+  :: (∀ a b. a -> Either a b)
+  -> (∀ a b. b -> Either a b)
+  -> (∀ a. Maybe a)
+  -> (∀ a. a -> Maybe a)
+  -> Utils

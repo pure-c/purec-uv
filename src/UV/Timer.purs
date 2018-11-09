@@ -23,7 +23,9 @@ import Data.Symbol (SProxy(..))
 import Data.Variant as V
 import Effect (Effect)
 import UV.Error (Error)
-import UV.Loop (Loop)
+import UV.Loop as UV
+import UV.Internal as UV
+import UV.Internal as UV.Internal
 import UV.Types (Handler)
 
 newtype Timeout = Timeout Int
@@ -36,19 +38,15 @@ _timerNew = SProxy
 
 timerNew
   :: ∀ es
-   . Loop
+   . UV.Loop
   -> Handler (timerNew :: Error | es) TimerHandle
-timerNew loop =
-  withExceptT (V.inj _timerNew) $
-    ExceptT $
-      timerNewImpl Left Right Nothing Just loop
+timerNew =
+  let go = timerNewImpl UV.Internal.utils
+   in withExceptT (V.inj _timerNew) <<< ExceptT <<< go
 
 foreign import timerNewImpl
-  :: (∀ a b. a -> Either a b)
-  -> (∀ a b. b -> Either a b)
-  -> (∀ a. Maybe a)
-  -> (∀ a. a -> Maybe a)
-  -> Loop
+  :: UV.Utils
+  -> UV.Loop
   -> Effect (Either Error TimerHandle)
 
 _timerStart :: SProxy "timerStart"

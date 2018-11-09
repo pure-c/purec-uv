@@ -20,7 +20,9 @@ import Data.Symbol (SProxy(..))
 import Data.Variant as V
 import Effect (Effect)
 import UV.Error (Error)
-import UV.Loop (Loop)
+import UV.Loop as UV
+import UV.Internal as UV
+import UV.Internal as UV.Internal
 import Unsafe.Coerce (unsafeCoerce)
 
 foreign import data TcpHandle :: Type
@@ -36,19 +38,15 @@ _tcpNew = SProxy
 
 tcpNew
   :: ∀ es
-   . Loop
+   . UV.Loop
   -> Handler (tcpNew :: Error | es) TcpHandle
-tcpNew loop =
-  withExceptT (V.inj _tcpNew) $
-    ExceptT $
-      tcpNewImpl Left Right Nothing Just loop
+tcpNew =
+  let go = tcpNewImpl UV.Internal.utils
+   in withExceptT (V.inj _tcpNew) <<< ExceptT <<< go
 
 foreign import tcpNewImpl
-  :: (∀ a b. a -> Either a b)
-  -> (∀ a b. b -> Either a b)
-  -> (∀ a. Maybe a)
-  -> (∀ a. a -> Maybe a)
-  -> Loop
+  :: UV.Utils
+  -> UV.Loop
   -> Effect (Either Error TcpHandle)
 
 _tcpBind :: SProxy "tcpBind"

@@ -5,7 +5,6 @@ module UV.Loop
   , _RunDefault
   , _RunOnce
   , _RunNoWait
-  , defaultLoop
   , newLoop
   , _run
   , run
@@ -18,6 +17,8 @@ import Data.Symbol (SProxy(..))
 import Effect (Effect)
 import UV.Types (Handler, mkHandler)
 import UV.Error (Error)
+import UV.Internal as UV
+import UV.Internal as UV.Internal
 
 foreign import data RunMode :: Type
 foreign import _RunDefault :: RunMode
@@ -25,25 +26,24 @@ foreign import _RunOnce :: RunMode
 foreign import _RunNoWait :: RunMode
 
 foreign import data Loop :: Type
-foreign import defaultLoop :: Effect Loop
-foreign import newLoop :: Effect Loop
 foreign import data LoopOption :: Type
+
+newLoop :: Effect Loop
+newLoop = newLoopImpl UV.Internal.utils
+
+foreign import newLoopImpl :: UV.Utils -> Effect Loop
 
 _run :: SProxy "run"
 _run = SProxy
 
 run
   :: ∀ es
-   . Loop
-  -> RunMode
+   . RunMode
+  -> Loop
   -> Handler (run :: Error | es) Unit
-run loop mode =
-  mkHandler _run $
-    runImpl Left Right loop mode
+run mode loop = mkHandler _run $ runImpl mode loop
 
 foreign import runImpl
-  :: (∀ a b. a -> Either a b)
-  -> (∀ a b. b -> Either a b)
+  :: RunMode
   -> Loop
-  -> RunMode
   -> Effect (Either Error Unit)

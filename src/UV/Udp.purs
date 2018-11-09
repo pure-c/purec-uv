@@ -26,7 +26,9 @@ import Data.Variant as V
 import Effect (Effect)
 import UV.Buffer (Buffer)
 import UV.Error (Error)
-import UV.Loop (Loop)
+import UV.Loop as UV
+import UV.Internal as UV
+import UV.Internal as UV.Internal
 import UV.Types (class IsSockAddr, Handler, SockAddr, SockAddrIn, toSockAddr)
 
 foreign import data UdpHandle :: Type
@@ -41,19 +43,15 @@ _udpNew = SProxy
 
 udpNew
   :: ∀ es
-   . Loop
+   . UV.Loop
   -> Handler (udpNew :: Error | es) UdpHandle
-udpNew loop =
-  withExceptT (V.inj _udpNew) $
-    ExceptT $
-      udpNewImpl Left Right Nothing Just loop
+udpNew =
+  let go = udpNewImpl UV.Internal.utils
+   in withExceptT (V.inj _udpNew) <<< ExceptT <<< go
 
 foreign import udpNewImpl
-  :: (∀ a b. a -> Either a b)
-  -> (∀ a b. b -> Either a b)
-  -> (∀ a. Maybe a)
-  -> (∀ a. a -> Maybe a)
-  -> Loop
+  :: UV.Utils
+  -> UV.Loop
   -> Effect (Either Error UdpHandle)
 
 _udpBind :: SProxy "udpBind"
@@ -105,12 +103,10 @@ udpSetBroadcast
 udpSetBroadcast x handle =
   withExceptT (V.inj _udpSetBroadcast) $
     ExceptT $
-      udpSetBroadcastImpl Left Right x handle
+      udpSetBroadcastImpl x handle
 
 foreign import udpSetBroadcastImpl
-  :: (∀ a b. a -> Either a b)
-  -> (∀ a b. b -> Either a b)
-  -> Boolean
+  :: Boolean
   -> UdpHandle
   -> Effect (Either Error Unit)
 

@@ -1,9 +1,24 @@
 #include <uv.h>
 #include <purescript.h>
 
+#include "UV.Internal.h"
+
+static const purs_any_t * utils = NULL;
+PURS_FFI_FUNC_4(UV_Internal_mkUtils, Left, Right, Nothing, Just, {
+	if (utils == NULL) {
+		purec_uv_utils_t * tmp = purs_new(purec_uv_utils_t);
+		tmp->Left = Left;
+		tmp->Right = Right;
+		tmp->Nothing = Nothing;
+		tmp->Just = Just;
+		utils = purs_any_foreign_new(NULL, tmp);
+	}
+	return utils;
+});
+
 void purec_uv_alloc_buf_cb(uv_handle_t* handle,
-			 size_t suggested_size,
-			 uv_buf_t* buf) {
+			   size_t suggested_size,
+			   uv_buf_t* buf) {
 	buf->base = purs_malloc(suggested_size);
 	buf->len = suggested_size;
 }
