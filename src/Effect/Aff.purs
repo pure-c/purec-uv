@@ -3,6 +3,7 @@ module Effect.Aff where
 import Prelude
 
 import Control.Monad.Error.Class (class MonadError, class MonadThrow)
+import Control.Monad.Rec.Class (class MonadRec, Step(..))
 import Data.Either (Either(..))
 import Effect (Effect)
 import Effect.Class (class MonadEffect, liftEffect)
@@ -136,6 +137,18 @@ instance monadEffectAff :: MonadEffect (Aff e) where
   liftEffect = _liftEffect
 
 instance monadAff :: Monad (Aff e)
+
+-- | This instance is provided for compatibility. `Aff` is always stack-safe
+-- | within a given fiber. This instance will just result in unnecessary
+-- | bind overhead.
+instance monadRecAff :: MonadRec (Aff e) where
+  tailRecM k = go
+    where
+    go a = do
+      res <- k a
+      case res of
+        Done r -> pure r
+        Loop b -> go b
 
 instance monadThrowAff :: MonadThrow e (Aff e) where
   throwError = _throwError
