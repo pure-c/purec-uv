@@ -8,6 +8,7 @@ PURS_FFI_EXPORT(Effect_Aff_makeFiberImpl);
 PURS_FFI_EXPORT(Effect_Aff_makeAff);
 PURS_FFI_EXPORT(Effect_Aff__fork);
 PURS_FFI_EXPORT(Effect_Aff__map);
+PURS_FFI_EXPORT(Effect_Aff__bimap);
 PURS_FFI_EXPORT(Effect_Aff__pure);
 PURS_FFI_EXPORT(Effect_Aff__bind);
 PURS_FFI_EXPORT(Effect_Aff__liftEffect);

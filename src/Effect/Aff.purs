@@ -2,8 +2,9 @@ module Effect.Aff where
 
 import Prelude
 
-import Control.Monad.Error.Class (class MonadError, class MonadThrow)
+import Control.Monad.Error.Class (class MonadError, class MonadThrow, catchError, throwError)
 import Control.Monad.Rec.Class (class MonadRec, Step(..))
+import Data.Bifunctor (class Bifunctor)
 import Data.Either (Either(..))
 import Effect (Effect)
 import Effect.Class (class MonadEffect, liftEffect)
@@ -136,6 +137,9 @@ instance applyAff :: Apply (Aff e) where
 instance monadEffectAff :: MonadEffect (Aff e) where
   liftEffect = _liftEffect
 
+instance bifunctorAff :: Bifunctor Aff where
+  bimap = _bimap
+
 instance monadAff :: Monad (Aff e)
 
 -- | This instance is provided for compatibility. `Aff` is always stack-safe
@@ -162,4 +166,5 @@ foreign import _catchError :: ∀ e a. Aff e a -> (e -> Aff e a) -> Aff e a
 foreign import _liftEffect :: ∀ e a. Effect a -> Aff e a
 foreign import _pure :: ∀ e a. a -> Aff e a
 foreign import _map :: ∀ e a b. (a -> b) -> Aff e a -> Aff e b
+foreign import _bimap :: ∀ e f a b. (e -> f) -> (a -> b) -> Aff e a -> Aff f b
 foreign import _bind :: ∀ e a b. Aff e a -> (a -> Aff e b) -> Aff e b
