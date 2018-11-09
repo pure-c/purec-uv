@@ -41,7 +41,8 @@ run
    . RunMode
   -> Loop
   -> Handler (run :: Error | es) Unit
-run mode loop = mkHandler _run $ runImpl mode loop
+run mode loop =
+  mkHandler _run $ runImpl mode loop
 
 foreign import runImpl
   :: RunMode

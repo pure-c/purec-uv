@@ -26,10 +26,10 @@ import Data.Variant as V
 import Effect (Effect)
 import UV.Buffer (Buffer)
 import UV.Error (Error)
-import UV.Loop as UV
 import UV.Internal as UV
 import UV.Internal as UV.Internal
-import UV.Types (class IsSockAddr, Handler, SockAddr, SockAddrIn, toSockAddr)
+import UV.Loop as UV
+import UV.Types (class IsSockAddr, Handler, SockAddr, SockAddrIn, mkHandler, toSockAddr)
 
 foreign import data UdpHandle :: Type
 foreign import data UdpFlag :: Type
@@ -47,7 +47,7 @@ udpNew
   -> Handler (udpNew :: Error | es) UdpHandle
 udpNew =
   let go = udpNewImpl UV.Internal.utils
-   in withExceptT (V.inj _udpNew) <<< ExceptT <<< go
+   in mkHandler _udpNew <<< go
 
 foreign import udpNewImpl
   :: UV.Utils
@@ -64,9 +64,8 @@ udpBind
   -> UdpHandle
   -> Handler (udpBind :: Error | es) Unit
 udpBind addr flags handle =
-  withExceptT (V.inj _udpBind) $
-    ExceptT $
-      udpBindImpl addr flags handle
+  mkHandler _udpBind $
+    udpBindImpl addr flags handle
 
 foreign import udpBindImpl
   :: SockAddrIn
@@ -83,9 +82,8 @@ udpRecvStart
   -> UdpHandle
   -> Handler (udpRecvStart :: Error | es) Unit
 udpRecvStart recvCb handle =
-  withExceptT (V.inj _udpRecvStart) $
-    ExceptT $
-      udpRecvStartImpl recvCb handle
+  mkHandler _udpRecvStart $
+    udpRecvStartImpl recvCb handle
 
 foreign import udpRecvStartImpl
   :: (Maybe Buffer -> Effect Unit)
@@ -101,9 +99,8 @@ udpSetBroadcast
   -> UdpHandle
   -> Handler (udpSetBroadcast :: Error | es) Unit
 udpSetBroadcast x handle =
-  withExceptT (V.inj _udpSetBroadcast) $
-    ExceptT $
-      udpSetBroadcastImpl x handle
+  mkHandler _udpSetBroadcast $
+    udpSetBroadcastImpl x handle
 
 foreign import udpSetBroadcastImpl
   :: Boolean
@@ -122,9 +119,8 @@ udpSend
   -> UdpHandle
   -> Handler (udpSend :: Error | es) Unit
 udpSend bufs addr cb handle =
-  withExceptT (V.inj _udpSend) $
-    ExceptT $
-      udpSendImpl bufs (toSockAddr addr) cb handle
+  mkHandler _udpSend $
+    udpSendImpl bufs (toSockAddr addr) cb handle
 
 foreign import udpSendImpl
   :: Array Buffer

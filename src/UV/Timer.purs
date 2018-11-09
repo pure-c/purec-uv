@@ -23,10 +23,10 @@ import Data.Symbol (SProxy(..))
 import Data.Variant as V
 import Effect (Effect)
 import UV.Error (Error)
-import UV.Loop as UV
 import UV.Internal as UV
 import UV.Internal as UV.Internal
-import UV.Types (Handler)
+import UV.Loop as UV
+import UV.Types (Handler, mkHandler)
 
 newtype Timeout = Timeout Int
 newtype Repeat = Repeat Int
@@ -42,7 +42,7 @@ timerNew
   -> Handler (timerNew :: Error | es) TimerHandle
 timerNew =
   let go = timerNewImpl UV.Internal.utils
-   in withExceptT (V.inj _timerNew) <<< ExceptT <<< go
+   in mkHandler _timerNew <<< go
 
 foreign import timerNewImpl
   :: UV.Utils
@@ -60,9 +60,8 @@ timerStart
   -> TimerHandle
   -> Handler (timerStart :: Error | es) Unit
 timerStart timeout repeat cb handle =
-  withExceptT (V.inj _timerStart) $
-    ExceptT $
-      timerStartImpl timeout repeat cb handle
+  mkHandler _timerStart $
+    timerStartImpl timeout repeat cb handle
 
 foreign import timerStartImpl
   :: Timeout
@@ -79,9 +78,8 @@ timerStop
    . TimerHandle
   -> Handler (timerStop :: Error | es) Unit
 timerStop handle =
-  withExceptT (V.inj _timerStop) $
-    ExceptT $
-      timerStopImpl handle
+  mkHandler _timerStop $
+    timerStopImpl handle
 
 foreign import timerStopImpl
   :: TimerHandle
@@ -95,9 +93,8 @@ timerAgain
    . TimerHandle
   -> Handler (timerAgain :: Error | es) Unit
 timerAgain handle =
-  withExceptT (V.inj _timerAgain) $
-    ExceptT $
-      timerAgainImpl handle
+  mkHandler _timerAgain $
+    timerAgainImpl handle
 
 foreign import timerAgainImpl
   :: TimerHandle

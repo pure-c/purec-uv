@@ -13,7 +13,6 @@ module UV.Stream
 
 import Prelude
 
-import UV.Types (Handler)
 import Control.Monad.Except (ExceptT(..), withExceptT)
 import Data.Either (Either)
 import Data.Maybe (Maybe)
@@ -22,6 +21,7 @@ import Data.Variant as V
 import Effect (Effect)
 import UV.Buffer (Buffer)
 import UV.Error (Error)
+import UV.Types (Handler, mkHandler)
 
 foreign import data StreamHandle :: Type
 
@@ -43,8 +43,8 @@ listen
   -> h
   -> Handler (listen :: Error | es) Unit
 listen backlog cb h =
-  withExceptT (V.inj _listen) $
-    ExceptT $ listenImpl backlog cb $ toStreamHandle h
+  mkHandler _listen $
+    listenImpl backlog cb $ toStreamHandle h
 
 foreign import listenImpl
   :: ∀ h
@@ -63,8 +63,8 @@ readStart
   -> h
   -> Handler (readStart :: Error | es) Unit
 readStart cb h =
-  withExceptT (V.inj _readStart) $
-    ExceptT $ readStartImpl cb $ toStreamHandle h
+  mkHandler _readStart $
+    readStartImpl cb $ toStreamHandle h
 
 foreign import readStartImpl
   :: (Either Error (Maybe Buffer) -> Effect Unit)
@@ -82,8 +82,8 @@ write
   -> h
   -> Handler (write :: Error | es) Unit
 write bufs cb h =
-  withExceptT (V.inj _write) $
-    ExceptT $ writeImpl bufs cb $ toStreamHandle h
+  mkHandler _write $
+    writeImpl bufs cb $ toStreamHandle h
 
 foreign import writeImpl
   :: Array Buffer
