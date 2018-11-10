@@ -11,3 +11,4 @@ import UV.Tcp    as Reexport
 import UV.Udp    as Reexport
 import UV.Buffer as Reexport
 import UV.Timer  as Reexport
+import UV.Handle as Reexport

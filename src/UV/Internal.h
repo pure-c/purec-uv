@@ -13,22 +13,6 @@ typedef struct purec_uv_utils_s {
 	const purs_any_t * Just;
 } purec_uv_utils_t;
 
-#define BASE_HANDLE_FIELDS\
-	purec_uv_utils_t* utils;
-
-/* abstract */
-struct purec_uv_base_handle_s {
-	BASE_HANDLE_FIELDS
-};
-
-#define HANDLE_GET_UTILS(HANDLE)\
-	((struct purec_uv_base_handle_s*)((HANDLE)->data))->utils
-
-#define INIT_BASE_HANDLE(HANDLE, TYPE, UTILS)\
-	(HANDLE)->data = purs_new(TYPE);\
-	((struct purec_uv_base_handle_s*)(HANDLE)->data)->utils = \
-		((purec_uv_utils_t*)(UTILS))
-
 /* Return an 'Either Int V' based on a given expression */
 #define TO_EITHER(UTILS, EXPRESSION, V)\
 	({\

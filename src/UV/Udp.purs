@@ -30,8 +30,12 @@ import UV.Internal as UV
 import UV.Internal as UV.Internal
 import UV.Loop as UV
 import UV.Types (class IsSockAddr, Handler, SockAddr, SockAddrIn, mkHandler, toSockAddr)
+import UV.Handle (class IsHandle)
 
 foreign import data UdpHandle :: Type
+
+instance isHandleUdpHandle :: IsHandle UdpHandle
+
 foreign import data UdpFlag :: Type
 
 foreign import _UdpIpv6only :: UdpFlag

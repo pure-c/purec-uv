@@ -3,6 +3,7 @@
 
 #include <purescript.h>
 
+#include "UV.Handle.h"
 #include "UV.Internal.h"
 
 typedef struct purec_uv_udp_ctx_s purec_uv_udp_ctx_t;

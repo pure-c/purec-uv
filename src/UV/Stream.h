@@ -4,6 +4,7 @@
 #include <uv.h>
 #include <purescript.h>
 
+#include "UV.Handle.h"
 #include "UV.Internal.h"
 
 #define STREAM_HANDLE_FIELDS\

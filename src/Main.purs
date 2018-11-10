@@ -48,6 +48,8 @@ main = do
     sendH <- UV.udpNew loop
     buf   <- liftEffect $ UV.Buffer.fromString "udp: hello"
     UV.udpSend [ buf ] (UV.ip4Addr "0.0.0.0" 1234) sendH
+    UV.close recvH
+    UV.close sendH
 
   renderErrCode errCode =
     UV.strerror errCode <> " (" <> show errCode <> ")"
@@ -90,3 +92,5 @@ main = do
 
     buf <- liftEffect $ UV.Buffer.fromString "tcp: hello"
     UV.write [ buf ] clientH
+    UV.close clientH
+    UV.close serverH

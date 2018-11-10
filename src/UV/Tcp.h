@@ -4,6 +4,7 @@
 #include <uv.h>
 #include <purescript.h>
 
+#include "UV.Handle.h"
 #include "UV.Internal.h"
 #include "UV.Stream.h"
 

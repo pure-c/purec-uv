@@ -3,6 +3,7 @@
 
 #include "UV.Stream.h"
 #include "UV.Tcp.h"
+#include "UV.Handle.h"
 #include "UV.Internal.h"
 
 static void purec_uv_on_connection_cb (uv_stream_t *server_handle, int status) {

@@ -14,6 +14,7 @@ module UV.Aff
   , listen
   , readStart
   , write
+  , close
   ) where
 
 import Prelude
@@ -31,7 +32,7 @@ import Effect.Class (liftEffect)
 import Effect.Console as Console
 import Partial.Unsafe (unsafeCrashWith, unsafePartial)
 import UV as UV
-import UV hiding (Handler,udpBind,udpNew,udpSend,udpRecvStart,tcpNew,tcpBind,tcpConnect,listen,readStart,write) as Reexport
+import UV hiding (Handler,udpBind,udpNew,udpSend,udpRecvStart,tcpNew,tcpBind,tcpConnect,listen,readStart,write,close) as Reexport
 
 type Handler es a =
   Aff (Variant es) a
@@ -221,3 +222,12 @@ write bufs handle =
           pure unit
         Left ve ->
           k $ Left ve
+
+--------------------------------------------------------------------------------
+-- Handle
+--------------------------------------------------------------------------------
+
+close :: ∀ es h. UV.IsHandle h => h -> Handler es Unit
+close handle = makeAff \k ->
+  nonCanceler <$ do
+    UV.close <@> handle $ k (Right unit)

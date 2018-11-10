@@ -23,9 +23,13 @@ import UV.Internal as UV.Internal
 import UV.Loop as UV
 import UV.Stream (class IsStreamHandle)
 import UV.Types (class IsSockAddr, Handler, SockAddr, SockAddrIn, mkHandler, toSockAddr)
+import UV.Handle (class IsHandle)
 import Unsafe.Coerce (unsafeCoerce)
 
 foreign import data TcpHandle :: Type
+
+instance isHandleTcpHandle :: IsHandle TcpHandle
+
 foreign import data TcpFlag :: Type
 
 instance isStreamHandleTcpHandle :: IsStreamHandle TcpHandle where
