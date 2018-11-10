@@ -21,17 +21,19 @@ import UV.Buffer as UV.Buffer
 main :: Effect Unit
 main = do
   loop <- UV.newLoop
-  UV.launchAff_ loop do
-    testUdp loop
-    -- testTcp loop
+  UV.launchAff_ <@> loop $ do
+    testUdp loop `catchError` \ve ->
+      liftEffect $ Console.log $
+        "testUdp: failure(" <> rowLabel ve <> "): " <>
+          renderErrCode (UV.errCode ve)
+    testTcp loop `catchError` \ve ->
+      liftEffect $ Console.log $
+        "testTcp: failure(" <> rowLabel ve <> "): " <>
+          renderErrCode (UV.errCode ve)
   runExceptT (UV.run UV._RunDefault loop) >>= case _ of
     Left ve ->
-      let
-        errLabel = rowLabel ve
-        errCode = UV.errCode ve
-      in
-        Console.log $
-          "Failure(" <> errLabel <> "): " <> renderErrCode errCode
+      Console.log $
+        "Failure(" <> rowLabel ve <> "): " <> renderErrCode (UV.errCode ve)
     Right _ ->
       Console.log "Done!"
 
@@ -55,45 +57,36 @@ main = do
       k \sym _ ->
         reflectSymbol sym
 
---   testTcp :: _ -> UV.Handler _ Unit
---   testTcp loop = do
---     let
---       serverAddr =
---         UV.ip4Addr "0.0.0.0" 80 -- 4321
+  testTcp :: _ -> UV.Handler _ Unit
+  testTcp loop = do
+    let
+      serverAddr =
+        UV.ip4Addr "0.0.0.0" 4321
 
---     serverH <- UV.tcpNew loop
---     UV.tcpBind serverAddr [] serverH
---     UV.listen (UV.Backlog 128) <@> serverH $ \result -> do
---       logResult =<< runExceptT do
---         case result of
---           Left err ->
---             lift $ Console.log $ "tcp server: listen failure: " <> renderErrCode err
---           Right clientH -> do
---             lift $ Console.log $ "tcp: server: listen success"
---             UV.readStart <@> clientH $ \result ->
---               case result of
---                 Left err ->
---                   Console.log $ "tcp: read: failure: " <> renderErrCode err
---                 Right Nothing ->
---                   Console.log "tcp: read: EOF"
---                 Right (Just buf) -> do
---                   s <- UV.Buffer.toString buf
---                   Console.log $ "tcp: read: " <> s
+    serverH <- UV.tcpNew loop
+    UV.tcpBind serverAddr [] serverH
 
---     clientH <- UV.tcpNew loop
---     UV.tcpConnect serverAddr <@> clientH $ \result -> do
---       case result of
---         Left err ->
---           Console.log $ "tcp: connect: failure: " <> renderErrCode err
---         Right _ ->
---           Console.log "tcp: connect: success"
+    UV.listen (UV.Backlog 128) <@> serverH $ \result ->
+      UV.launchAff_ <@> loop $
+        case result of
+          Left err ->
+            liftEffect $
+              Console.log $ "tcp server: listen failure: " <> renderErrCode err
+          Right clientH -> do
+            liftEffect $
+              Console.log $ "tcp: server: listen success"
+            UV.readStart <@> clientH $ \result ->
+              case result of
+                Left err ->
+                  Console.log $ "tcp: read: failure: " <> renderErrCode err
+                Right Nothing ->
+                  Console.log "tcp: read: EOF"
+                Right (Just buf) -> do
+                  s <- UV.Buffer.toString buf
+                  Console.log $ "tcp: read: " <> s
 
---     buf <- lift $ UV.Buffer.fromString "tcp: hello"
---     UV.write [ buf ] <@> clientH $ \result -> do
---       case result of
---         Left err ->
---           Console.log $ "tcp: write: failure: " <> renderErrCode err
---         Right _ ->
---           Console.log "tcp: write: success"
+    clientH <- UV.tcpNew loop
+    UV.tcpConnect serverAddr clientH
 
---     pure unit -- To be continued ...
+    buf <- liftEffect $ UV.Buffer.fromString "tcp: hello"
+    UV.write [ buf ] clientH

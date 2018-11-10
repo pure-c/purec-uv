@@ -8,6 +8,12 @@ module UV.Aff
   , udpBind
   , udpSend
   , udpRecvStart
+  , tcpNew
+  , tcpBind
+  , tcpConnect
+  , listen
+  , readStart
+  , write
   ) where
 
 import Prelude
@@ -25,7 +31,7 @@ import Effect.Class (liftEffect)
 import Effect.Console as Console
 import Partial.Unsafe (unsafeCrashWith, unsafePartial)
 import UV as UV
-import UV hiding (Handler,udpBind,udpNew,udpSend,udpRecvStart) as Reexport
+import UV hiding (Handler,udpBind,udpNew,udpSend,udpRecvStart,tcpNew,tcpBind,tcpConnect,listen,readStart,write) as Reexport
 
 type Handler es a =
   Aff (Variant es) a
@@ -74,20 +80,26 @@ delay ms loop =
 
 launchAff_
   :: ∀ e a
-   . UV.Loop
-  -> Aff e a
+   . Aff e a
+  -> UV.Loop
   -> Effect Unit
-launchAff_ loop action = void $ launchAff loop action
+launchAff_ action loop =
+  void $ launchAff action loop
 
 launchAff
   :: ∀ e a
-   . UV.Loop
-  -> Aff e a
+   . Aff e a
+  -> UV.Loop
   -> Effect (Fiber e a)
-launchAff loop =
+launchAff action loop =
   Aff.launchAff
     (setTimeout_ loop)
     (\_ -> pure $ unsafeCrashWith "TODO: render and print error")
+    action
+
+--------------------------------------------------------------------------------
+-- UDP
+--------------------------------------------------------------------------------
 
 udpNew
   :: ∀ es
@@ -111,12 +123,10 @@ udpSend
   -> UV.UdpHandle
   -> Handler (udpSend :: UV.Error | es) Unit
 udpSend bufs addr handle =
-  makeAff \k -> do
-    Console.log "few taps"
+  makeAff \k ->
     -- TODO: use `uv_cancel`
     nonCanceler <$ do
-      result <- runExceptT $ UV.udpSend bufs addr <@> handle $ \result' -> do
-        Console.log "klara"
+      result <- runExceptT $ UV.udpSend bufs addr <@> handle $ \result' ->
         -- XXX: is "udpSend" the right label here?
         k $ lmap (inj UV._udpSend) result'
       case result of
@@ -131,3 +141,83 @@ udpRecvStart
   -> UV.UdpHandle
   -> Handler (udpRecvStart :: UV.Error | es) Unit
 udpRecvStart cb handle = fromHandler $ UV.udpRecvStart cb handle
+
+--------------------------------------------------------------------------------
+-- TCP
+--------------------------------------------------------------------------------
+
+tcpNew
+  :: ∀ es
+   . UV.Loop
+  -> Handler (tcpNew :: UV.Error | es) UV.TcpHandle
+tcpNew = fromHandler <<< UV.tcpNew
+
+tcpBind
+  :: ∀ es
+   . UV.SockAddrIn
+  -> Array UV.TcpFlag
+  -> UV.TcpHandle
+  -> Handler (tcpBind :: UV.Error | es) Unit
+tcpBind addr flags handle =
+  fromHandler $ UV.tcpBind addr flags handle
+
+tcpConnect
+  :: ∀ es sockAddr
+   . UV.IsSockAddr sockAddr
+  => sockAddr
+  -> UV.TcpHandle
+  -> Handler (tcpConnect :: UV.Error | es) Unit
+tcpConnect addr handle =
+  makeAff \k ->
+    -- TODO: use `uv_cancel`
+    nonCanceler <$ do
+      result <- runExceptT $ UV.tcpConnect addr <@> handle $ \result' ->
+        -- XXX: is "tcpConnect" the right label here?
+        k $ lmap (inj UV._tcpConnect) result'
+      case result of
+        Right _ ->
+          pure unit
+        Left ve ->
+          k $ Left ve
+
+--------------------------------------------------------------------------------
+-- Streams
+--------------------------------------------------------------------------------
+
+listen
+  :: ∀ h es
+   . UV.IsStreamHandle h
+  => UV.Backlog
+  -> (Either UV.Error h -> Effect Unit)
+  -> h
+  -> Handler (listen :: UV.Error | es) Unit
+listen backlog cb h =
+  fromHandler $ UV.listen backlog cb h
+
+readStart
+  :: ∀ h es
+   . UV.IsStreamHandle h
+  => (Either UV.Error (Maybe UV.Buffer) -> Effect Unit)
+  -> h
+  -> Handler (readStart :: UV.Error | es) Unit
+readStart cb h =
+  fromHandler $ UV.readStart cb h
+
+write
+  :: ∀ h es
+   . UV.IsStreamHandle h
+  => Array UV.Buffer
+  -> h
+  -> Handler (write :: UV.Error | es) Unit
+write bufs handle =
+  makeAff \k ->
+    -- TODO: use `uv_cancel`
+    nonCanceler <$ do
+      result <- runExceptT $ UV.write bufs <@> handle $ \result' ->
+        -- XXX: is "write" the right label here?
+        k $ lmap (inj UV._write) result'
+      case result of
+        Right _ ->
+          pure unit
+        Left ve ->
+          k $ Left ve
