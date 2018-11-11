@@ -168,3 +168,19 @@ foreign import _pure :: ∀ e a. a -> Aff e a
 foreign import _map :: ∀ e a b. (a -> b) -> Aff e a -> Aff e b
 foreign import _bimap :: ∀ e f a b. (e -> f) -> (a -> b) -> Aff e a -> Aff f b
 foreign import _bind :: ∀ e a b. Aff e a -> (a -> Aff e b) -> Aff e b
+
+type BracketConditions e a b =
+  { killed :: e -> a -> Aff e Unit
+  , failed :: e -> a -> Aff e Unit
+  , completed :: b -> a -> Aff e Unit
+  }
+
+-- | A general purpose bracket which lets you observe the status of the
+-- | bracketed action. The bracketed action may have been killed with an
+-- | exception, thrown an exception, or completed successfully.
+foreign import generalBracket
+  :: ∀ e a b
+   . Aff e a
+  -> BracketConditions e a b
+  -> (a -> Aff e b)
+  -> Aff b

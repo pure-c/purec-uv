@@ -854,3 +854,15 @@ PURS_FFI_FUNC_2(Effect_Aff__fork, immediate, aff, {
 		aff_fork_new(purs_any_get_int(immediate),
 			     FROM_FOREIGN(aff)));
 });
+
+PURS_FFI_FUNC_3(Effect_Aff_generalBracket, acquire, _options, k, {
+	int x;
+	const purs_record_t* options = purs_any_get_record(_options);
+	purs_record_find_
+	const purs_any_t *completed, *killed, *failed; /* TODO: extract from options */
+	return TO_FOREIGN(aff_bracket_new(acquire,
+					  completed,
+					  killed,
+					  failed,
+					  k));
+});
