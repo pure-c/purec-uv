@@ -7,18 +7,21 @@
 #define DONT_RETHROW 0
 
 #define AFF_TAG_MAP(XX)\
-	XX(AFF_TAG_PURE,   0)\
-	XX(AFF_TAG_BIND,   1)\
-	XX(AFF_TAG_SYNC,   2)\
-	XX(AFF_TAG_ASYNC,  3)\
-	XX(AFF_TAG_THROW,  4)\
-	XX(AFF_TAG_CATCH,  5)\
-	XX(AFF_TAG_CONS,   6)\
-	XX(AFF_TAG_RESUME, 7)\
-	XX(AFF_TAG_FORK,   8)\
+	XX(AFF_TAG_PURE)\
+	XX(AFF_TAG_BIND)\
+	XX(AFF_TAG_SYNC)\
+	XX(AFF_TAG_ASYNC)\
+	XX(AFF_TAG_THROW)\
+	XX(AFF_TAG_CATCH)\
+	XX(AFF_TAG_CONS)\
+	XX(AFF_TAG_RESUME)\
+	XX(AFF_TAG_FORK)\
+	XX(AFF_TAG_BRACKET)\
+	XX(AFF_TAG_RELEASE)\
+	XX(AFF_TAG_FINALIZED)\
 
-#define TO_ENUM_MEMBER(N, V) N = V,
-#define TO_LOOKUP_MEMBER(N, V) # N,
+#define TO_ENUM_MEMBER(N) N,
+#define TO_LOOKUP_MEMBER(N) # N,
 
 typedef enum {
 	AFF_TAG_MAP(TO_ENUM_MEMBER)
@@ -32,8 +35,8 @@ typedef struct aff_s aff_t;
 typedef struct step_s step_t;
 
 #define STEP_TAG_MAP(XX)\
-	XX(STEP_TAG_AFF, 0)\
-	XX(STEP_TAG_VAL, 1)\
+	XX(STEP_TAG_AFF)\
+	XX(STEP_TAG_VAL)\
 
 typedef enum {
 	STEP_TAG_MAP(TO_ENUM_MEMBER)
@@ -78,6 +81,7 @@ cons_t * cons_new(const step_t * head, const cons_t * tail) {
 	return cons;
 }
 
+/* data Aff e a */
 struct aff_s {
 	aff_tag_t tag;
 
@@ -120,6 +124,21 @@ struct aff_s {
 			const aff_t * value1;
 		} fork;
 
+		/* ∀ r. Bracket
+		 *        (Aff e r)              -- acquire
+		 *        (r -> a -> Aff e Unit) -- completed
+		 *        (r -> e -> Aff e Unit) -- failed
+		 *        (r -> e -> Aff e Unit) -- killed
+		 *        (r -> Aff e a)         -- action
+		 */
+		struct {
+			const aff_t * acquire;
+			const purs_any_t * completed;
+			const purs_any_t * failed;
+			const purs_any_t * killed;
+			const purs_any_t * action;
+		} bracket;
+
 		/* ??? */
 		struct {
 			const aff_t * value0; /* ??? */
@@ -132,6 +151,18 @@ struct aff_s {
 			const purs_any_t * value0; /* ??? */
 			const cons_t * value1; /* ??? */
 		} resume;
+
+		/* ??? */
+		struct {
+			const aff_t * bracket; /* ??? */
+			const purs_any_t * result; /* ??? */
+		} release;
+
+		/* ??? */
+		struct {
+			const purs_any_t * result; /* ??? */
+			const purs_any_t * failure; /* ??? */
+		} finalized;
 	};
 };
 
@@ -200,7 +231,6 @@ aff_t * aff_catch_new(const aff_t * value0, const purs_any_t * value1) {
 }
 
 aff_t * aff_fork_new(int value0, const aff_t * value1) {
-	assert(value1 != NULL);
 	aff_t * aff_ = purs_new(aff_t);
 	aff_->tag = AFF_TAG_FORK;
 	aff_->fork.value0 = value0;
@@ -208,14 +238,47 @@ aff_t * aff_fork_new(int value0, const aff_t * value1) {
 	return aff_;
 }
 
+aff_t * aff_bracket_new(const aff_t * acquire,
+			const purs_any_t * completed,
+			const purs_any_t * killed,
+			const purs_any_t * failed,
+			const purs_any_t * action) {
+	aff_t * aff_ = purs_new(aff_t);
+	aff_->tag = AFF_TAG_BRACKET;
+	aff_->bracket.acquire = acquire;
+	aff_->bracket.completed = completed;
+	aff_->bracket.killed = killed;
+	aff_->bracket.failed = failed;
+	aff_->bracket.action = action;
+	return aff_;
+}
+
+aff_t * aff_release_new(const aff_t * bracket,
+			const purs_any_t * result) {
+	aff_t * aff_ = purs_new(aff_t);
+	aff_->tag = AFF_TAG_RELEASE;
+	aff_->release.bracket = bracket;
+	aff_->release.result = result;
+	return aff_;
+}
+
+aff_t * aff_finalized_new(const purs_any_t * result,
+			  const purs_any_t * failure) {
+	aff_t * aff_ = purs_new(aff_t);
+	aff_->tag = AFF_TAG_FINALIZED;
+	aff_->finalized.result = result;
+	aff_->finalized.failure = failure;
+	return aff_;
+}
+
 #define FIBER_STATE_MAP(XX)\
-	XX(FIBER_STATE_SUSPENDED,   0)\
-	XX(FIBER_STATE_CONTINUE,    1)\
-	XX(FIBER_STATE_STEP_BIND,   2)\
-	XX(FIBER_STATE_STEP_RESULT, 3)\
-	XX(FIBER_STATE_PENDING,     4)\
-	XX(FIBER_STATE_RETURN,      5)\
-	XX(FIBER_STATE_COMPLETED,   6)\
+	XX(FIBER_STATE_SUSPENDED)\
+	XX(FIBER_STATE_CONTINUE)\
+	XX(FIBER_STATE_STEP_BIND)\
+	XX(FIBER_STATE_STEP_RESULT)\
+	XX(FIBER_STATE_PENDING)\
+	XX(FIBER_STATE_RETURN)\
+	XX(FIBER_STATE_COMPLETED)\
 
 typedef enum {
 	FIBER_STATE_MAP(TO_ENUM_MEMBER)
@@ -441,6 +504,8 @@ PURS_FFI_FUNC_4(onCompletedCheckRethrow, _fiber, _error, _reCheck, _, {
 	return NULL;
 });
 
+/* evaluate the fiber up to the next ASYNC boundary
+ */
 void fiber_run(fiber_t * fiber, uint32_t local_run_tick) {
 	while (1) {
 		printf("fiber->state: %s\n", fiber_state_str_lookup[fiber->state]);
@@ -582,7 +647,30 @@ void fiber_run(fiber_t * fiber, uint32_t local_run_tick) {
 					fiber->step = step_aff_new(fiber->step->aff->catch.value0);
 					break;
 				}
-
+				case AFF_TAG_BRACKET: {
+					fiber->bracket_count++;
+					if (fiber->bhead == NULL) {
+						fiber->attempts =
+							aff_cons_new(fiber->step->aff,
+								     fiber->attempts,
+								     fiber->interrupt);
+					} else {
+						fiber->attempts =
+							aff_cons_new(
+								fiber->step->aff,
+								aff_cons_new(
+									aff_resume_new(fiber->bhead,
+										       fiber->btail),
+									fiber->attempts,
+									fiber->interrupt),
+								fiber->interrupt);
+					}
+					fiber->bhead = NULL;
+					fiber->btail = NULL;
+					fiber->state = FIBER_STATE_CONTINUE;
+					fiber->step = step_aff_new(fiber->step->aff->bracket.acquire);
+					break;
+				}
 				case AFF_TAG_FORK: {
 					fiber->state = FIBER_STATE_STEP_RESULT;
 					fiber_t * tmp =
@@ -606,8 +694,7 @@ void fiber_run(fiber_t * fiber, uint32_t local_run_tick) {
 				break;
 			}
 			case STEP_TAG_VAL: {
-				printf("fiber->step->val->tag: %s\n",
-				       purs_any_tag_str(fiber->step->val->tag));
+				assert(0);
 			}
 			}
 			break;
@@ -636,8 +723,8 @@ void fiber_run(fiber_t * fiber, uint32_t local_run_tick) {
 					: fiber->step;
 			} else {
 				assert(fiber->attempts->tag == AFF_TAG_CONS);
-				const purs_any_t * tmp = fiber->attempts->cons.value2;
 				const aff_t * attempt = fiber->attempts->cons.value0;
+				const purs_any_t * tmp = fiber->attempts->cons.value2;
 				fiber->attempts = fiber->attempts->cons.value1;
 
 				printf("attempt->tag: %s\n",
@@ -674,6 +761,107 @@ void fiber_run(fiber_t * fiber, uint32_t local_run_tick) {
 										      fiber->step->val));
 					}
 					break;
+
+				/* If we have a bracket, we should enqueue the
+				handlers, and continue with the success branch
+				only if the fiber has not been interrupted. If
+				the bracket acquisition failed, we should not
+				run either. */
+				case AFF_TAG_BRACKET:
+					fiber->bracket_count--;
+					if (fiber->failure == NULL) {
+						const purs_any_t * result =
+							utils_from_right(fiber->utils,
+									 fiber->step->val);
+						fiber->step = step_val_new(result);
+
+						/* We need to enqueue the
+						Release with the same interrupt
+						status as the Bracket that is
+						initiating it. */
+						fiber->attempts =
+							aff_cons_new(aff_release_new(attempt, result),
+								     fiber->attempts,
+								     tmp);
+
+						/* We should only continue as
+						   long as the interrupt status
+						   has not changed or we are
+						   currently within a
+						   non-interruptable
+						   finalizer. */
+						if (fiber->interrupt == tmp ||
+						    fiber->bracket_count > 0) {
+							fiber->state = FIBER_STATE_CONTINUE;
+							fiber->step =
+								step_aff_new(
+									FROM_FOREIGN(
+										purs_any_app(attempt->bracket.action,
+											     result)));
+						}
+					}
+					break;
+
+				/* Enqueue the appropriate handler. We increase
+				the bracket count because it should not be
+				cancelled. */
+				case AFF_TAG_RELEASE:
+					fiber->bracket_count++;
+					fiber->attempts =
+						aff_cons_new(
+							aff_finalized_new(
+								fiber->step && fiber->step->val,
+								fiber->failure),
+							fiber->attempts,
+							fiber->interrupt);
+					fiber->state = FIBER_STATE_CONTINUE;
+					/* It has only been killed if the
+					    interrupt status has changed since
+					    we enqueued the item. */
+					if (fiber->interrupt &&
+					    fiber->interrupt != tmp) {
+						fiber->step =
+							step_aff_new(
+								FROM_FOREIGN(
+									purs_any_app(
+										purs_any_app(
+											attempt->release.bracket->bracket.killed,
+											utils_from_left(fiber->utils,
+													fiber->interrupt)),
+										attempt->release.result)));
+					} else if (fiber->failure != NULL) {
+						fiber->step =
+							step_aff_new(
+								FROM_FOREIGN(
+									purs_any_app(
+										purs_any_app(
+											attempt->release.bracket->bracket.failed,
+											utils_from_left(fiber->utils,
+													fiber->failure)),
+										attempt->release.result)));
+					} else {
+						printf("c\n");
+						fiber->step =
+							step_aff_new(
+								FROM_FOREIGN(
+									purs_any_app(
+										purs_any_app(
+											attempt->release.bracket->bracket.completed,
+											utils_from_right(fiber->utils,
+													 fiber->step->val)),
+										attempt->release.result)));
+					}
+
+					fiber->failure = NULL;
+					break;
+
+				case AFF_TAG_FINALIZED:
+					fiber->bracket_count--;
+					fiber->state = FIBER_STATE_RETURN;
+					fiber->step = step_val_new(attempt->finalized.result);
+					fiber->failure = attempt->finalized.failure;
+					break;
+
 				default:
 					assert(0 /* not implemented */);
 				}
@@ -684,7 +872,7 @@ void fiber_run(fiber_t * fiber, uint32_t local_run_tick) {
 			return;
 
 		case FIBER_STATE_COMPLETED: {
-			/* Inovke join handlers */
+			/* Invoke join handlers */
 			join_table_t * entry, * tmp;
 			assert(fiber->step != NULL);
 			assert(fiber->step->tag == STEP_TAG_VAL);
@@ -853,4 +1041,16 @@ PURS_FFI_FUNC_2(Effect_Aff__fork, immediate, aff, {
 	return TO_FOREIGN(
 		aff_fork_new(purs_any_get_int(immediate),
 			     FROM_FOREIGN(aff)));
+});
+
+PURS_FFI_FUNC_3(Effect_Aff_generalBracket, acquire, _options, k, {
+	const purs_record_t* options = purs_any_get_record(_options);
+	const purs_any_t * killed = purs_record_find_by_key(options, "killed")->value;
+	const purs_any_t * failed = purs_record_find_by_key(options, "failed")->value;
+	const purs_any_t * completed = purs_record_find_by_key(options, "completed")->value;
+	return TO_FOREIGN(aff_bracket_new(FROM_FOREIGN(acquire),
+					  completed,
+					  killed,
+					  failed,
+					  k));
 });
