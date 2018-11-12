@@ -81,6 +81,7 @@ cons_t * cons_new(const step_t * head, const cons_t * tail) {
 	return cons;
 }
 
+/* curried function application for common arities */
 #define app_1(FN, A1) purs_any_app(FN, A1)
 #define app_2(FN, A1, A2) purs_any_app(app_1(FN, A1), A2)
 #define app_3(FN, A1, A2, A3) purs_any_app(app_2(FN, A1, A2), A3)
@@ -395,45 +396,44 @@ fiber_t * fiber_new(const utils_t * utils,
 }
 
 int utils_is_right (const utils_t * utils, const purs_any_t * v) {
-	return purs_any_is_true(purs_any_app(utils->is_right, v));
+	return purs_any_is_true(app_1(utils->is_right, v));
 }
 
 int utils_is_left (const utils_t * utils, const purs_any_t * v) {
-	return purs_any_is_true(purs_any_app(utils->is_left, v));
+	return purs_any_is_true(app_1(utils->is_left, v));
 }
 
 const purs_any_t * utils_from_right (const utils_t * utils, const purs_any_t * v) {
-	return purs_any_app(utils->from_right, v);
+	return app_1(utils->from_right, v);
 }
 
 const purs_any_t * utils_from_left (const utils_t * utils, const purs_any_t * v) {
-	return purs_any_app(utils->from_left, v);
+	return app_1(utils->from_left, v);
 }
 
 const purs_any_t * utils_to_right (const utils_t * utils, const purs_any_t * v) {
-	return purs_any_app(utils->Right, v);
+	return app_1(utils->Right, v);
 }
 
 const purs_any_t * utils_to_left (const utils_t * utils, const purs_any_t * v) {
-	return purs_any_app(utils->Left, v);
+	return app_1(utils->Left, v);
 }
 
 const purs_any_t * run_sync(const utils_t * utils,
 			    const purs_any_t * effect) {
-	return purs_any_app(utils->Right,
-			    purs_any_app(effect, NULL));
+	return app_1(utils->Right, app_1(effect, NULL));
 }
 
 const purs_any_t * run_async(const utils_t * utils,
 			     const purs_any_t * effect,
 			     const purs_any_t * k) {
-	return purs_any_app(purs_any_app(effect, k), NULL);
+	return app_2(effect, k, NULL);
 }
 
 void fiber_run(fiber_t*, uint32_t);
 
 PURS_FFI_FUNC_4(onKilledCallback, fn, arg, _ /* unused */, __ /* thunk */, {
-	return purs_any_app(fn, arg);
+	return app_1(fn, arg);
 });
 
 PURS_FFI_FUNC_4(runAsync, _localRunTick, _fiber, result, _, {
@@ -471,15 +471,16 @@ PURS_FFI_FUNC_2(onComplete, _join, _, {
 	if (join->fiber->state == FIBER_STATE_COMPLETED) {
 		join->fiber->rethrow = join->fiber->rethrow && join->rethrow;
 		assert(join->fiber->step->tag == STEP_TAG_VAL);
-		purs_any_app(purs_any_app(join->callback,
-					  join->fiber->step->val), NULL);
+		app_2(join->callback,
+		      join->fiber->step->val,
+		      NULL);
 		return noop_canceler;
 	} else {
 		join_table_t * entry = purs_new(join_table_t);
 		entry->id = join->fiber->join_id++;
 		entry->join = *join;
 		HASH_ADD_INT(join->fiber->joins, id, entry);
-		return purs_any_app(join_canceler, TO_FOREIGN(entry));
+		return app_1(join_canceler, TO_FOREIGN(entry));
 	}
 });
 
@@ -487,12 +488,9 @@ PURS_FFI_FUNC_3(Effect_Aff__joinFiber, _fiber, cb, _, {
 	fiber_t * fiber = FROM_FOREIGN(_fiber);
 	printf("joinFiber: fiber->state: %s\n", fiber_state_str_lookup[fiber->state]);
 	const purs_any_t * canceler =
-		purs_any_app(
-			purs_any_app(onComplete,
-				     TO_FOREIGN(join_new(fiber,
-							 cb,
-							 DONT_RETHROW))),
-			NULL);
+		app_2(onComplete,
+		      TO_FOREIGN(join_new(fiber, cb, DONT_RETHROW)),
+		      NULL);
 	if (fiber->state == FIBER_STATE_SUSPENDED) {
 		fiber_run(fiber, fiber->run_tick);
 	}
@@ -502,7 +500,7 @@ PURS_FFI_FUNC_3(Effect_Aff__joinFiber, _fiber, cb, _, {
 PURS_FFI_FUNC_4(Effect_Aff__killFiber, error, k, _fiber, _, {
 	fiber_t * fiber = FROM_FOREIGN(_fiber);
 	if (fiber->state == FIBER_STATE_COMPLETED) {
-		purs_any_app(utils_to_right(fiber->utils, NULL), NULL);
+		app_1(utils_to_right(fiber->utils, NULL), NULL);
 		return noop_canceler;
 	}
 
@@ -533,8 +531,8 @@ PURS_FFI_FUNC_4(Effect_Aff__killFiber, error, k, _fiber, _, {
 					aff_cons_new(
 						aff_finalized_new(
 							/* TODO: check this is right */
-							purs_any_app(fiber->step->val,
-								     error),
+							app_1(fiber->step->val,
+							      error),
 							NULL
 						),
 						fiber->attempts,
@@ -566,12 +564,10 @@ PURS_FFI_FUNC_4(onCompletedCheckRethrow, _fiber, _error, _reCheck, _, {
 	fiber_t * fiber = FROM_FOREIGN(_fiber);
 	if (purs_any_get_int(_reCheck)) {
 		if (fiber->rethrow) {
-			purs_any_app(purs_any_app(fiber->on_uncaught_error, _error),
-				     NULL);
+			app_2(fiber->on_uncaught_error, _error, NULL);
 		}
 	} else {
-		purs_any_app(purs_any_app(fiber->on_uncaught_error, _error),
-			     NULL);
+		app_2(fiber->on_uncaught_error, _error, NULL);
 	}
 	return NULL;
 });
@@ -590,9 +586,8 @@ void fiber_run(fiber_t * fiber, uint32_t local_run_tick) {
 			fiber->state = FIBER_STATE_CONTINUE;
 			fiber->step = step_aff_new(
 				FROM_FOREIGN(
-					purs_any_app(
-						fiber->bhead,
-						fiber->step->val)));
+					app_1(fiber->bhead,
+					      fiber->step->val)));
 
 			/* update the stack pointers */
 			if (fiber->btail == NULL) {
@@ -675,11 +670,9 @@ void fiber_run(fiber_t * fiber, uint32_t local_run_tick) {
 						run_async(
 							fiber->utils,
 							fiber->step->aff->async.value0,
-							purs_any_app(
-								purs_any_app(
-									runAsync,
-									purs_any_int_new(local_run_tick)),
-								TO_FOREIGN(fiber))));
+							app_2(runAsync,
+							      purs_any_int_new(local_run_tick),
+							      TO_FOREIGN(fiber))));
 					break;
 				}
 				case AFF_TAG_THROW: {
@@ -808,9 +801,9 @@ void fiber_run(fiber_t * fiber, uint32_t local_run_tick) {
 					} else if (fiber->failure != NULL) {
 						fiber->state = FIBER_STATE_CONTINUE;
 						fiber->step = step_aff_new(
-							FROM_FOREIGN(purs_any_app(attempt->catch.value1,
-										  utils_from_left(fiber->utils,
-												  fiber->failure))));
+							FROM_FOREIGN(app_1(attempt->catch.value1,
+									   utils_from_left(fiber->utils,
+											   fiber->failure))));
 						fiber->failure = NULL;
 					}
 					break;
@@ -868,8 +861,8 @@ void fiber_run(fiber_t * fiber, uint32_t local_run_tick) {
 							fiber->step =
 								step_aff_new(
 									FROM_FOREIGN(
-										purs_any_app(attempt->bracket.action,
-											     result)));
+										app_1(attempt->bracket.action,
+										      result)));
 						}
 					}
 					break;
@@ -897,32 +890,23 @@ void fiber_run(fiber_t * fiber, uint32_t local_run_tick) {
 						fiber->step =
 							step_aff_new(
 								FROM_FOREIGN(
-									purs_any_app(
-										purs_any_app(
-											attempt->release.bracket->bracket.killed,
-											utils_from_left(fiber->utils,
-													fiber->interrupt)),
-										attempt->release.result)));
+									app_2(attempt->release.bracket->bracket.killed,
+									      utils_from_left(fiber->utils, fiber->interrupt),
+									      attempt->release.result)));
 					} else if (fiber->failure != NULL) {
 						fiber->step =
 							step_aff_new(
 								FROM_FOREIGN(
-									purs_any_app(
-										purs_any_app(
-											attempt->release.bracket->bracket.failed,
-											utils_from_left(fiber->utils,
-													fiber->failure)),
-										attempt->release.result)));
+									app_2(attempt->release.bracket->bracket.failed,
+									      utils_from_left(fiber->utils, fiber->failure),
+									      attempt->release.result)));
 					} else {
 						fiber->step =
 							step_aff_new(
 								FROM_FOREIGN(
-									purs_any_app(
-										purs_any_app(
-											attempt->release.bracket->bracket.completed,
-											utils_from_right(fiber->utils,
-													 fiber->step->val)),
-										attempt->release.result)));
+									app_2(attempt->release.bracket->bracket.completed,
+									      utils_from_right(fiber->utils, fiber->step->val),
+									      attempt->release.result)));
 					}
 
 					fiber->failure = NULL;
@@ -952,9 +936,9 @@ void fiber_run(fiber_t * fiber, uint32_t local_run_tick) {
 
 			HASH_ITER(hh, fiber->joins, entry, tmp) {
 				fiber->rethrow = fiber->rethrow && entry->join.rethrow;
-				purs_any_app(purs_any_app(entry->join.callback,
-							  fiber->step->val),
-					     NULL);
+				app_2(entry->join.callback,
+				      fiber->step->val,
+				      NULL);
 			}
 			fiber->joins = NULL;
 
@@ -968,46 +952,22 @@ void fiber_run(fiber_t * fiber, uint32_t local_run_tick) {
 			       utils_is_left(fiber->utils, fiber->step->val));
 
 			if (fiber->interrupt != NULL && fiber->failure != NULL) {
-				purs_any_app(
-					purs_any_app(
-						purs_any_app(
-							fiber->set_timeout,
-							purs_any_int_new(0)
-						),
-						purs_any_app(
-							purs_any_app(
-								purs_any_app(
-									onCompletedCheckRethrow,
-									TO_FOREIGN(fiber)
-								),
-								utils_from_left(fiber->utils, fiber->failure)
-							),
-							purs_any_false
-						)
-					),
-					NULL
-				);
+				app_3(fiber->set_timeout,
+				      purs_any_int_new(0),
+				      app_3(onCompletedCheckRethrow,
+					    TO_FOREIGN(fiber),
+					    utils_from_left(fiber->utils, fiber->failure),
+					    purs_any_false),
+				      NULL);
 			} else if (utils_is_left(fiber->utils,
 						 fiber->step->val) && fiber->rethrow) {
-				purs_any_app(
-					purs_any_app(
-						purs_any_app(
-							fiber->set_timeout,
-							purs_any_int_new(0)
-						),
-						purs_any_app(
-							purs_any_app(
-								purs_any_app(
-									onCompletedCheckRethrow,
-									TO_FOREIGN(fiber)
-								),
-								utils_from_left(fiber->utils, fiber->step->val)
-							),
-							purs_any_true
-						)
-					),
-					NULL
-				);
+				app_3(fiber->set_timeout,
+				      purs_any_int_new(0),
+				      app_3(onCompletedCheckRethrow,
+					    TO_FOREIGN(fiber),
+					    utils_from_left(fiber->utils, fiber->step->val),
+					    purs_any_true),
+				      NULL);
 			}
 			return;
 		}
@@ -1067,14 +1027,14 @@ PURS_FFI_FUNC_1(Effect_Aff__pure, a, {
 
 const purs_any_t * aff_bind (const void * ctx, const purs_any_t * arg, va_list _) {
 	const purs_any_t * f = ctx;
-	return TO_FOREIGN(aff_pure_new(purs_any_app(f, arg)));
+	return TO_FOREIGN(aff_pure_new(app_1(f, arg)));
 }
 
 PURS_FFI_FUNC_2(Effect_Aff__map, f, _aff, {
 	const aff_t * aff = FROM_FOREIGN(_aff);
 	if (aff->tag == AFF_TAG_PURE) {
 		return TO_FOREIGN(
-			aff_pure_new(purs_any_app(f, aff->pure.value0)));
+			aff_pure_new(app_1(f, aff->pure.value0)));
 	} else {
 		return TO_FOREIGN(
 			aff_bind_new(aff,
@@ -1084,15 +1044,15 @@ PURS_FFI_FUNC_2(Effect_Aff__map, f, _aff, {
 
 const purs_any_t * aff_throw (const void * ctx, const purs_any_t * arg, va_list _) {
 	const purs_any_t * f = ctx;
-	return TO_FOREIGN(aff_throw_new(purs_any_app(f, arg)));
+	return TO_FOREIGN(aff_throw_new(app_1(f, arg)));
 }
 
 PURS_FFI_FUNC_3(Effect_Aff__bimap, lf, rf, _aff, {
 	const aff_t * aff = FROM_FOREIGN(_aff);
 	if (aff->tag == AFF_TAG_PURE) {
-		return TO_FOREIGN(aff_pure_new(purs_any_app(rf, aff->pure.value0)));
+		return TO_FOREIGN(aff_pure_new(app_1(rf, aff->pure.value0)));
 	} else if (aff->tag == AFF_TAG_THROW) {
-		return TO_FOREIGN(aff_throw_new(purs_any_app(lf, aff->throw.value0)));
+		return TO_FOREIGN(aff_throw_new(app_1(lf, aff->throw.value0)));
 	} else {
 		return TO_FOREIGN(
 			aff_bind_new(aff_catch_new(aff,
