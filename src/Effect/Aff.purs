@@ -28,6 +28,32 @@ foreign import _joinFiber
   -> (Either e a -> Effect Unit)
   -> Effect (Effect Unit)
 
+foreign import isSuspended
+  :: ∀ e a
+   . Fiber e a
+  -> Effect Boolean
+
+-- | Invokes pending cancelers in a fiber and runs cleanup effects. Blocks
+-- | until the fiber has fully exited.
+killFiber :: ∀ e a. e -> Fiber e a -> Aff e Unit
+killFiber e fiber =
+  liftEffect (isSuspended fiber) >>= if _
+    then
+      liftEffect $
+        void $
+          _killFiber e (const (pure unit)) fiber
+    else
+      makeAff \k ->
+        effectCanceler <$>
+          _killFiber e k fiber
+
+foreign import _killFiber
+  :: ∀ e a
+   . e
+  -> (Either e Unit -> Effect Unit)
+  -> Fiber e a
+  -> Effect (Effect Unit)
+
 -- | A cancellation effect for actions run via `makeAff`. If a `Fiber` is
 -- | killed, and an async action is pending, the canceler will be called to
 -- | clean it up.

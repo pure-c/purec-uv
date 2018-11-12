@@ -16,5 +16,7 @@ PURS_FFI_EXPORT(Effect_Aff__throwError);
 PURS_FFI_EXPORT(Effect_Aff__catchError);
 PURS_FFI_EXPORT(Effect_Aff__joinFiber);
 PURS_FFI_EXPORT(Effect_Aff_generalBracket);
+PURS_FFI_EXPORT(Effect_Aff_isSuspended);
+PURS_FFI_EXPORT(Effect_Aff__killFiber);
 
 #endif // EFFECT_AFF_H

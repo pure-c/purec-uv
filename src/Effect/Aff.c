@@ -81,6 +81,11 @@ cons_t * cons_new(const step_t * head, const cons_t * tail) {
 	return cons;
 }
 
+#define app_1(FN, A1) purs_any_app(FN, A1)
+#define app_2(FN, A1, A2) purs_any_app(app_1(FN, A1), A2)
+#define app_3(FN, A1, A2, A3) purs_any_app(app_2(FN, A1, A2), A3)
+
+
 /* data Aff e a */
 struct aff_s {
 	aff_tag_t tag;
@@ -427,6 +432,10 @@ const purs_any_t * run_async(const utils_t * utils,
 
 void fiber_run(fiber_t*, uint32_t);
 
+PURS_FFI_FUNC_4(onKilledCallback, fn, arg, _ /* unused */, __ /* thunk */, {
+	return purs_any_app(fn, arg);
+});
+
 PURS_FFI_FUNC_4(runAsync, _localRunTick, _fiber, result, _, {
 	fiber_t * fiber = FROM_FOREIGN(_fiber);
 
@@ -487,6 +496,69 @@ PURS_FFI_FUNC_3(Effect_Aff__joinFiber, _fiber, cb, _, {
 	if (fiber->state == FIBER_STATE_SUSPENDED) {
 		fiber_run(fiber, fiber->run_tick);
 	}
+	return canceler;
+});
+
+PURS_FFI_FUNC_4(Effect_Aff__killFiber, error, k, _fiber, _, {
+	fiber_t * fiber = FROM_FOREIGN(_fiber);
+	if (fiber->state == FIBER_STATE_COMPLETED) {
+		purs_any_app(utils_to_right(fiber->utils, NULL), NULL);
+		return noop_canceler;
+	}
+
+	const purs_any_t * canceler =
+		app_2(onComplete,
+		      TO_FOREIGN(
+			join_new(fiber,
+				 app_2(onKilledCallback,
+				       k,
+				       utils_to_right(fiber->utils, NULL)),
+				 DONT_RETHROW)),
+		      NULL);
+
+	switch (fiber->state) {
+	case FIBER_STATE_SUSPENDED:
+		fiber->interrupt = utils_to_left(fiber->utils, error);
+		fiber->state = FIBER_STATE_COMPLETED;
+		fiber->step = step_val_new(fiber->interrupt);
+		fiber_run(fiber, fiber->run_tick);
+		break;
+	case FIBER_STATE_PENDING:
+		if (fiber->interrupt == NULL) {
+			fiber->interrupt = utils_to_left(fiber->utils, error);
+		}
+		if (fiber->bracket_count == 0) {
+			if (fiber->state == FIBER_STATE_PENDING) {
+				fiber->attempts =
+					aff_cons_new(
+						aff_finalized_new(
+							/* TODO: check this is right */
+							purs_any_app(fiber->step->val,
+								     error),
+							NULL
+						),
+						fiber->attempts,
+						fiber->interrupt
+					);
+			}
+			fiber->state = FIBER_STATE_RETURN;
+			fiber->step = NULL;
+			fiber->failure = NULL;
+			fiber_run(fiber, ++fiber->run_tick);
+		}
+		break;
+	default:
+		if (fiber->interrupt == NULL) {
+			fiber->interrupt = utils_to_left(fiber->utils, error);
+		}
+		if (fiber->bracket_count == 0) {
+			fiber->state = FIBER_STATE_RETURN;
+			fiber->step = NULL;
+			fiber->failure = NULL;
+		}
+		break;
+	}
+
 	return canceler;
 });
 
@@ -810,7 +882,9 @@ void fiber_run(fiber_t * fiber, uint32_t local_run_tick) {
 					fiber->attempts =
 						aff_cons_new(
 							aff_finalized_new(
-								fiber->step && fiber->step->val,
+								fiber->step == NULL
+									? NULL
+									: fiber->step->val,
 								fiber->failure),
 							fiber->attempts,
 							fiber->interrupt);
@@ -840,7 +914,6 @@ void fiber_run(fiber_t * fiber, uint32_t local_run_tick) {
 													fiber->failure)),
 										attempt->release.result)));
 					} else {
-						printf("c\n");
 						fiber->step =
 							step_aff_new(
 								FROM_FOREIGN(
@@ -876,6 +949,7 @@ void fiber_run(fiber_t * fiber, uint32_t local_run_tick) {
 			join_table_t * entry, * tmp;
 			assert(fiber->step != NULL);
 			assert(fiber->step->tag == STEP_TAG_VAL);
+
 			HASH_ITER(hh, fiber->joins, entry, tmp) {
 				fiber->rethrow = fiber->rethrow && entry->join.rethrow;
 				purs_any_app(purs_any_app(entry->join.callback,
@@ -1041,6 +1115,11 @@ PURS_FFI_FUNC_2(Effect_Aff__fork, immediate, aff, {
 	return TO_FOREIGN(
 		aff_fork_new(purs_any_get_int(immediate),
 			     FROM_FOREIGN(aff)));
+});
+
+PURS_FFI_FUNC_2(Effect_Aff_isSuspended, _fiber, _, {
+	const fiber_t * fiber = FROM_FOREIGN(_fiber);
+	return purs_any_int_new(fiber->state == FIBER_STATE_SUSPENDED);
 });
 
 PURS_FFI_FUNC_3(Effect_Aff_generalBracket, acquire, _options, k, {
