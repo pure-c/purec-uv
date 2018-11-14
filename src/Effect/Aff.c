@@ -329,6 +329,56 @@ typedef struct joins_table_s {
 	UT_hash_handle hh;
 } join_table_t;
 
+#define AFF_SCHEDULER_LIMIT 1024
+
+typedef struct scheduler_s {
+	int size;
+	int ix;
+	int is_draining;
+	const purs_any_t* queue[AFF_SCHEDULER_LIMIT];
+} scheduler_t;
+
+scheduler_t * scheduler_new() {
+	scheduler_t * scheduler = purs_new(scheduler_t);
+	scheduler->size = 0;
+	scheduler->ix = 0;
+	scheduler->is_draining = 0;
+	return scheduler;
+}
+
+void scheduler_drain(scheduler_t * scheduler) {
+	const purs_any_t * thunk = NULL;
+	scheduler->is_draining = 1;
+	while (scheduler->size != 0) {
+		scheduler->size--;
+		thunk = scheduler->queue[scheduler->ix];
+		scheduler->queue[scheduler->ix] = NULL;
+		scheduler->ix = (scheduler->ix + 1) % AFF_SCHEDULER_LIMIT;
+		app_1(thunk, NULL);
+	}
+	scheduler->is_draining = 0;
+}
+
+int scheduler_is_draining(const scheduler_t * scheduler) {
+	return scheduler->is_draining;
+}
+
+void scheduler_enqueue(scheduler_t * scheduler, const purs_any_t * thunk) {
+	int i, tmp;
+	if (scheduler->size == AFF_SCHEDULER_LIMIT) {
+		tmp = scheduler->is_draining;
+		scheduler_drain(scheduler);
+		scheduler->is_draining = tmp;
+	}
+
+	scheduler->queue[(scheduler->ix + scheduler->size) % AFF_SCHEDULER_LIMIT] = thunk;
+	scheduler->size++;
+
+	if (scheduler->is_draining == 0) {
+		scheduler_drain(scheduler);
+	}
+}
+
 struct fiber_s {
 	/* Monotonically increasing tick, increased on each asynchronous turn.
 	 */
@@ -370,6 +420,8 @@ struct fiber_s {
 	/* ancillary utilities */
 	const utils_t * utils;
 
+	/* scheduler */
+	scheduler_t * scheduler;
 };
 
 fiber_t * fiber_new(const utils_t * utils,
@@ -392,6 +444,7 @@ fiber_t * fiber_new(const utils_t * utils,
 	fiber->set_timeout = set_timeout;
 	fiber->on_uncaught_error = on_uncaught_error;
 	fiber->utils = utils;
+	fiber->scheduler = scheduler_new();
 	return fiber;
 }
 
@@ -436,22 +489,25 @@ PURS_FFI_FUNC_4(onKilledCallback, fn, arg, _ /* unused */, __ /* thunk */, {
 	return app_1(fn, arg);
 });
 
-PURS_FFI_FUNC_4(runAsync, _localRunTick, _fiber, result, _, {
+PURS_FFI_FUNC_3(runAsyncInner, _fiber, result, _, {
 	fiber_t * fiber = FROM_FOREIGN(_fiber);
-
-	/* prevent re-entrance */
-	if (purs_any_get_int(_localRunTick) != fiber->run_tick) {
-		return NULL;
-	}
-
-	fiber->run_tick++;
-
-	/* TODO scheduler.enqueue the below */
 	fiber->state = FIBER_STATE_STEP_RESULT;
 	fiber->step = step_val_new(result);
 	fiber_run(fiber, fiber->run_tick);
-
 	return NULL;
+});
+
+PURS_FFI_FUNC_4(runAsync, _localRunTick, _fiber, result, _, {
+	fiber_t * fiber = FROM_FOREIGN(_fiber);
+	/* prevent re-entrance */
+	if (purs_any_get_int(_localRunTick) != fiber->run_tick) {
+		return NULL;
+	} else {
+		fiber->run_tick++;
+		scheduler_enqueue(fiber->scheduler,
+				  app_2(runAsyncInner, _fiber, result));
+		return NULL;
+	}
 });
 
 PURS_FFI_FUNC_1(noop_canceler, _, {
@@ -1014,10 +1070,22 @@ PURS_FFI_FUNC_1(Effect_Aff_makeAff, k, {
 	return TO_FOREIGN(aff_async_new(k));
 });
 
+PURS_FFI_FUNC_3(runFiberThunk, _fiber, _tick, _, {
+	fiber_t *fiber = FROM_FOREIGN(_fiber);
+	fiber_run(fiber, purs_any_get_int(_tick));
+	return NULL;
+});
+
 PURS_FFI_FUNC_2(Effect_Aff_runFiber, _fiber, _, {
 	fiber_t *fiber = FROM_FOREIGN(_fiber);
-	// TODO: scheduler.enqueue (see Aff.js)
-	fiber_run(fiber, fiber->run_tick);
+	if (scheduler_is_draining(fiber->scheduler) == 0) {
+		scheduler_enqueue(fiber->scheduler,
+				  app_2(runFiberThunk,
+					_fiber,
+					purs_any_int_new(fiber->run_tick)));
+	} else {
+		fiber_run(fiber, fiber->run_tick);
+	}
 	return NULL;
 });
 
