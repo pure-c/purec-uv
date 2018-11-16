@@ -1,0 +1,13 @@
+{
+  "name": "uv",
+  "set": "master",
+  "source": "http://github.com/pure-c/package-sets",
+  "depends": [
+    "effect",
+    "console",
+    "prelude",
+    "transformers",
+    "unsafe-coerce",
+    "variant"
+  ]
+}
